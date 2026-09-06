@@ -12,3 +12,8 @@ timestamp,git_sha,device,phase,task_id,metric,value,unit,notes
 2026-09-06T08:38:38Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:janky_pct,14.3,%,stress=light-seq500k frames=7 janky=1 
 2026-09-06T08:38:38Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:pct90_frame,350,ms,stress=light-seq500k frames=7 janky=1 
 2026-09-06T08:38:38Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:pct95_frame,350,ms,stress=light-seq500k frames=7 janky=1 
+2026-09-06T10:30:00Z,7c8d3866,M2007J3SC-api36,T3.1,M-frame:frames_8s,346,count,stress=sustained-CJK-flood autostart 
+2026-09-06T10:30:00Z,7c8d3866,M2007J3SC-api36,T3.1,M-frame:p50_frame,13,ms,stress=sustained-CJK-flood autostart 
+2026-09-06T10:30:00Z,7c8d3866,M2007J3SC-api36,T3.1,M-frame:legacy_janky_pct,86.4,%,stress=sustained-CJK-flood autostart 
+2026-09-06T10:30:00Z,HEAD,T3.4-reverted,M2007J3SC-api36,T3.4,M-frame:frames_8s,131,count,T3.4-worker-ondraw-lock measured-then-reverted
+2026-09-06T10:30:00Z,HEAD,T3.4-reverted,M2007J3SC-api36,T3.4,M-frame:p50_frame,19,ms,T3.4-worker-ondraw-lock measured-then-reverted
