@@ -76,8 +76,9 @@ public final class TerminalView extends View {
 
     /** The top row of text to display. Ranges from -activeTranscriptRows to 0. */
     int mTopRow;
-    /** Row where the cursor was rendered at the last screen update, or -1 if it was not visible. */
+    /** Row/col where the cursor was rendered at the last screen update; row is -1 if it was not visible. */
     private int mLastRenderedCursorRow = -1;
+    private int mLastRenderedCursorCol;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     float mScaleFactor = 1.f;
@@ -528,39 +529,60 @@ public final class TerminalView extends View {
 
         mEmulator.clearScrollCounter();
 
-        // Only repaint the rows that actually changed instead of the whole screen (T1.2).
-        // A full repaint is still used for whole-screen scrolls, full clears, resizes,
-        // buffer switches, or when the scroll position changed.
+        // Only repaint what actually changed instead of the whole screen (T1.2/T1.4):
+        // - full repaint for whole-screen scrolls, full clears, resizes, buffer switches or
+        //   when the scroll position changed;
+        // - changed rows otherwise;
+        // - only the old/new cursor cells for a pure cursor move;
+        // - nothing at all when nothing changed (invalidate() is already coalesced per frame).
         TerminalBuffer buffer = mEmulator.getScreen();
         TerminalBuffer.ScreenChanges screenChanges = buffer.getScreenChanges();
-        boolean fullRepaint = screenChanges.fullRedraw || screenChanges.scrollRows > 0 || mTopRow != oldTopRow;
+        boolean fullRepaint = screenChanges.fullRedraw || screenChanges.scrollRows > 0
+            || mTopRow != oldTopRow || mRenderer == null;
 
         int firstRow = mEmulator.mRows;
         int lastRow = -1;
         if (!fullRepaint) {
             for (int row = 0; row < mEmulator.mRows; row++) {
                 if (buffer.isScreenRowDirty(row)) {
-                    if (row < firstRow) firstRow = row;
-                    if (row > lastRow) lastRow = row;
+                    if (lastRow == -1) firstRow = row;
+                    lastRow = row;
                 }
             }
-            // The cursor may have moved without any cell changing, so also repaint its
-            // previous and current rows; if nothing at all changed, keep the legacy full refresh.
-            if (mEmulator.shouldCursorBeVisible()) {
-                int cursorRow = mEmulator.getCursorRow();
-                if (cursorRow < firstRow) firstRow = cursorRow;
-                if (cursorRow > lastRow) lastRow = cursorRow;
-            }
-            if (mLastRenderedCursorRow >= 0) {
-                if (mLastRenderedCursorRow < firstRow) firstRow = mLastRenderedCursorRow;
-                if (mLastRenderedCursorRow > lastRow) lastRow = mLastRenderedCursorRow;
-            }
-            fullRepaint = (lastRow < 0);
         }
-        mLastRenderedCursorRow = mEmulator.shouldCursorBeVisible() ? mEmulator.getCursorRow() : -1;
+
+        final boolean cursorVisible = mEmulator.shouldCursorBeVisible();
+        final int cursorRow = cursorVisible ? mEmulator.getCursorRow() : -1;
+        final int cursorCol = cursorVisible ? mEmulator.getCursorCol() : 0;
+
+        if (!fullRepaint && lastRow == -1) {
+            // No cell changed: handle a pure cursor move (or nothing to do at all).
+            boolean cursorChanged = cursorVisible != (mLastRenderedCursorRow >= 0)
+                || cursorVisible && (cursorRow != mLastRenderedCursorRow || cursorCol != mLastRenderedCursorCol);
+            if (cursorChanged) {
+                if (mLastRenderedCursorRow >= 0) invalidateCellRect(mLastRenderedCursorRow, mLastRenderedCursorCol); // erase old
+                if (cursorVisible) invalidateCellRect(cursorRow, cursorCol);
+            }
+            setLastRenderedCursor(cursorVisible, cursorRow, cursorCol);
+            buffer.clearScreenChanges();
+            return;
+        }
+
+        // Rows changed (or full repaint): make sure both previous and current cursor rows are repainted too.
+        if (!fullRepaint) {
+            if (mLastRenderedCursorRow >= 0 && (mLastRenderedCursorRow < firstRow || mLastRenderedCursorRow > lastRow)) {
+                if (mLastRenderedCursorRow < firstRow) firstRow = mLastRenderedCursorRow;
+                else lastRow = mLastRenderedCursorRow;
+            }
+            if (cursorVisible && (cursorRow < firstRow || cursorRow > lastRow)) {
+                if (cursorRow < firstRow) firstRow = cursorRow;
+                else lastRow = cursorRow;
+            }
+        }
+        setLastRenderedCursor(cursorVisible, cursorRow, cursorCol);
         buffer.clearScreenChanges();
 
-        if (fullRepaint || mRenderer == null) {
+        if (fullRepaint) {
             invalidate();
         } else {
             int top = (firstRow - mTopRow) * mRenderer.mFontLineSpacing;
@@ -1415,10 +1437,20 @@ public final class TerminalView extends View {
     /** Invalidate only the pixel area around the terminal cursor instead of the whole view. */
     private void invalidateCursorRegion() {
         if (mEmulator == null || mRenderer == null || !mEmulator.isCursorEnabled()) return;
-        int left = Math.round(mEmulator.getCursorCol() * mRenderer.mFontWidth);
-        int right = Math.round((mEmulator.getCursorCol() + 2) * mRenderer.mFontWidth); // +2 cols covers wide chars.
-        int top = (mEmulator.getCursorRow() - mTopRow) * mRenderer.mFontLineSpacing;
-        invalidate(left, top, right, top + mRenderer.mFontLineSpacing);
+        invalidateCellRect(mEmulator.getCursorRow(), mEmulator.getCursorCol());
+    }
+
+    /** Invalidate the cell at (row, col); the 2-column width covers wide characters. */
+    private void invalidateCellRect(int row, int col) {
+        if (mRenderer == null) return;
+        int top = (row - mTopRow) * mRenderer.mFontLineSpacing;
+        int left = Math.round(col * mRenderer.mFontWidth);
+        invalidate(left, top, Math.round((col + 2) * mRenderer.mFontWidth), top + mRenderer.mFontLineSpacing);
+    }
+
+    private void setLastRenderedCursor(boolean visible, int row, int col) {
+        mLastRenderedCursorRow = visible ? row : -1;
+        mLastRenderedCursorCol = col;
     }
 
 
