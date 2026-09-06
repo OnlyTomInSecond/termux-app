@@ -1,0 +1,14 @@
+timestamp,git_sha,device,phase,task_id,metric,value,unit,notes
+2026-09-06T08:37:04Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:janky_pct,0,%,stress=idle frames=0 janky=0 no-frames-rendered
+2026-09-06T08:37:04Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:pct90_frame,0,ms,stress=idle frames=0 janky=0 no-frames-rendered
+2026-09-06T08:37:04Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:pct95_frame,0,ms,stress=idle frames=0 janky=0 no-frames-rendered
+2026-09-06T08:37:18Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:unserviceable,1,dump-failed,stress=burst-seq20m frames=0 janky=0 dumpsys gfxinfo failed (app main-thread starved)
+2026-09-06T08:37:58Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:janky_pct,100.0,%,stress=burst-seq5m frames=1 janky=1 
+2026-09-06T08:37:58Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:pct90_frame,2950,ms,stress=burst-seq5m frames=1 janky=1 
+2026-09-06T08:37:58Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:pct95_frame,2950,ms,stress=burst-seq5m frames=1 janky=1 
+2026-09-06T08:38:20Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:janky_pct,0,%,stress=light-seq10k frames=0 janky=0 no-frames-rendered
+2026-09-06T08:38:20Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:pct90_frame,0,ms,stress=light-seq10k frames=0 janky=0 no-frames-rendered
+2026-09-06T08:38:20Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:pct95_frame,0,ms,stress=light-seq10k frames=0 janky=0 no-frames-rendered
+2026-09-06T08:38:38Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:janky_pct,14.3,%,stress=light-seq500k frames=7 janky=1 
+2026-09-06T08:38:38Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:pct90_frame,350,ms,stress=light-seq500k frames=7 janky=1 
+2026-09-06T08:38:38Z,3b66f879,M2007J3SC-api36,T0.2,M-frame:pct95_frame,350,ms,stress=light-seq500k frames=7 janky=1 

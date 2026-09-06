@@ -57,6 +57,18 @@ tasks.withType(Test) {
     testLogging {
         events "started", "passed", "skipped", "failed"
     }
+    // Pass through perf benchmark properties (see perf/bench_parse.sh) to the test JVM.
+    // Without -Ptermux.perf.parse=true the ParseThroughputBench skips itself, so
+    // regular `./gradlew test` runs are unaffected.
+    def perfProperties = [
+        "termux.perf.parse",
+        "termux.perf.out",
+        "termux.perf.git",
+        "termux.perf.device"
+    ]
+    perfProperties.each { name ->
+        if (project.hasProperty(name)) systemProperty name, project.property(name)
+    }
 }
 
 dependencies {
