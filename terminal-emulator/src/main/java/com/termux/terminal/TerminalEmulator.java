@@ -1256,6 +1256,9 @@ public final class TerminalEmulator {
                     boolean resized = !(newScreen.mColumns == mColumns && newScreen.mScreenRows == mRows);
                     if (setting) saveCursor();
                     mScreen = newScreen;
+                    // The newly active buffer's whole content may differ from the last drawn frame
+                    // (different buffer or buffer changed while inactive), so force a full redraw.
+                    mScreen.markAllScreenDirty();
                     if (!setting) {
                         int col = mSavedStateMain.mSavedCursorCol;
                         int row = mSavedStateMain.mSavedCursorRow;

@@ -20,6 +20,20 @@ public final class TerminalBuffer {
     /** The index in the circular buffer where the visible screen starts. */
     private int mScreenFirstRow = 0;
 
+    // ---- Visible screen change tracking (accumulated until consumed) ----
+    // Records what parts of the visible screen changed since the last call to
+    // {@link #clearScreenChanges()}. Purely informational: rendering/consumer code
+    // may use it to avoid redrawing rows that did not change (see optimization plan
+    // task T1.1). It never alters terminal behaviour.
+    /** True while {@link #resize} is mutating the buffer, so intermediate states are not recorded. */
+    private boolean mScreenResizing;
+    /** Rows the whole visible screen has scrolled up (only full-screen scrolls; margins handled as dirty rows). */
+    private int mScreenScrollAccum;
+    /** Set when the whole visible content must be redrawn regardless of row marks (resize/full clear/buffer switch). */
+    private boolean mScreenFullDirty;
+    /** Rows (external screen coordinates) modified by non-scroll operations since the last clear. */
+    private boolean[] mScreenDirtyRows;
+
     /**
      * Create a transcript screen.
      *
@@ -35,6 +49,9 @@ public final class TerminalBuffer {
         mLines = new TerminalRow[totalRows];
 
         blockSet(0, 0, columns, screenRows, ' ', TextStyle.NORMAL);
+
+        // The initial screen fill above is not a "change" relative to any previous frame.
+        resetScreenChanges(false);
     }
 
     public String getTranscriptText() {
@@ -144,6 +161,66 @@ public final class TerminalBuffer {
         return text.substring(x1 + 1, x2);
     }
 
+    /**
+     * Snapshot of accumulated visible-screen changes since the last {@link #clearScreenChanges()}.
+     * Rows reported via {@link #isScreenRowDirty(int)} are valid until the next clear.
+     */
+    public static final class ScreenChanges {
+        /** Rows the whole visible screen has scrolled up since the last clear (only full-screen scrolls). */
+        public final int scrollRows;
+        /** True when the entire visible screen must be redrawn regardless of {@link #isScreenRowDirty(int)}. */
+        public final boolean fullRedraw;
+
+        ScreenChanges(int scrollRows, boolean fullRedraw) {
+            this.scrollRows = scrollRows;
+            this.fullRedraw = fullRedraw;
+        }
+    }
+
+    /** Get the accumulated screen changes without clearing them. */
+    public ScreenChanges getScreenChanges() {
+        return new ScreenChanges(mScreenScrollAccum, mScreenFullDirty);
+    }
+
+    /** Whether the given external screen row was modified by a non-scroll operation since the last clear. */
+    public boolean isScreenRowDirty(int externalScreenRow) {
+        return mScreenDirtyRows != null && !mScreenFullDirty
+            && externalScreenRow >= 0 && externalScreenRow < mScreenRows
+            && mScreenDirtyRows[externalScreenRow];
+    }
+
+    /** Reset the accumulated screen changes; rows reported before this call are no longer valid. */
+    public void clearScreenChanges() {
+        resetScreenChanges(false);
+    }
+
+    /**
+     * Force a full redraw on the next consume. Used by {@link TerminalEmulator} when the active
+     * screen buffer is switched (alternate screen enter/leave) since its whole content may differ
+     * from the last drawn frame.
+     */
+    public void markAllScreenDirty() {
+        if (!mScreenResizing) mScreenFullDirty = true;
+    }
+
+    private void resetScreenChanges(boolean fullRedraw) {
+        mScreenScrollAccum = 0;
+        mScreenFullDirty = fullRedraw;
+        mScreenDirtyRows = new boolean[mScreenRows];
+    }
+
+    private void markScreenRowDirty(int row) {
+        if (mScreenResizing || mScreenDirtyRows == null || row < 0 || row >= mScreenRows) return;
+        mScreenDirtyRows[row] = true;
+    }
+
+    private void markScreenRowsDirty(int firstRow, int endRowExclusive) {
+        if (mScreenResizing || mScreenDirtyRows == null) return;
+        if (firstRow < 0) firstRow = 0;
+        if (endRowExclusive > mScreenRows) endRowExclusive = mScreenRows;
+        for (int r = firstRow; r < endRowExclusive; r++) mScreenDirtyRows[r] = true;
+    }
+
     public int getActiveTranscriptRows() {
         return mActiveTranscriptRows;
     }
@@ -181,6 +258,7 @@ public final class TerminalBuffer {
     }
 
     public void setLineWrap(int row) {
+        markScreenRowDirty(row);
         mLines[externalToInternalRow(row)].mLineWrap = true;
     }
 
@@ -189,6 +267,7 @@ public final class TerminalBuffer {
     }
 
     public void clearLineWrap(int row) {
+        markScreenRowDirty(row);
         mLines[externalToInternalRow(row)].mLineWrap = false;
     }
 
@@ -202,6 +281,7 @@ public final class TerminalBuffer {
      */
     public void resize(int newColumns, int newRows, int newTotalRows, int[] cursor, long currentStyle, boolean altScreen) {
         // newRows > mTotalRows should not normally happen since mTotalRows is TRANSCRIPT_ROWS (10000):
+        mScreenResizing = true;
         if (newColumns == mColumns && newRows <= mTotalRows) {
             // Fast resize where just the rows changed.
             int shiftDownOfTopRow = mScreenRows - newRows;
@@ -351,6 +431,10 @@ public final class TerminalBuffer {
 
         // Handle cursor scrolling off screen:
         if (cursor[0] < 0 || cursor[1] < 0) cursor[0] = cursor[1] = 0;
+
+        mScreenResizing = false;
+        // Resize rearranges the whole content: consumers must redraw everything.
+        resetScreenChanges(true);
     }
 
     /**
@@ -385,6 +469,15 @@ public final class TerminalBuffer {
         if (topMargin > bottomMargin - 1 || topMargin < 0 || bottomMargin > mScreenRows)
             throw new IllegalArgumentException("topMargin=" + topMargin + ", bottomMargin=" + bottomMargin + ", mScreenRows=" + mScreenRows);
 
+        // A full-screen scroll shifts every row uniformly by one (report as a scroll delta);
+        // a margin-limited scroll only rewrites the scrolled region (report as dirty rows).
+        if (!mScreenResizing) {
+            if (topMargin == 0 && bottomMargin == mScreenRows) {
+                mScreenScrollAccum++;
+            } else {
+                markScreenRowsDirty(topMargin, bottomMargin);
+            }
+        }
         // Copy the fixed topMargin lines one line down so that they remain on screen in same position:
         blockCopyLinesDown(mScreenFirstRow, topMargin);
         // Copy the fixed mScreenRows-bottomMargin lines one line down so that they remain on screen in same
@@ -421,6 +514,8 @@ public final class TerminalBuffer {
         if (w == 0) return;
         if (sx < 0 || sx + w > mColumns || sy < 0 || sy + h > mScreenRows || dx < 0 || dx + w > mColumns || dy < 0 || dy + h > mScreenRows)
             throw new IllegalArgumentException();
+        markScreenRowsDirty(sy, sy + h);
+        markScreenRowsDirty(dy, dy + h);
         boolean copyingUp = sy > dy;
         for (int y = 0; y < h; y++) {
             int y2 = copyingUp ? y : (h - (y + 1));
@@ -439,6 +534,9 @@ public final class TerminalBuffer {
             throw new IllegalArgumentException(
                 "Illegal arguments! blockSet(" + sx + ", " + sy + ", " + w + ", " + h + ", " + val + ", " + mColumns + ", " + mScreenRows + ")");
         }
+        // A blockSet covering the whole screen (e.g. ED2/clear) is a full-screen change.
+        if (!mScreenResizing && sx == 0 && w == mColumns && sy == 0 && h == mScreenRows)
+            mScreenFullDirty = true;
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
                 setChar(sx + x, sy + y, val, style);
@@ -451,6 +549,7 @@ public final class TerminalBuffer {
     public void setChar(int column, int row, int codePoint, long style) {
         if (row  < 0 || row >= mScreenRows || column < 0 || column >= mColumns)
             throw new IllegalArgumentException("TerminalBuffer.setChar(): row=" + row + ", column=" + column + ", mScreenRows=" + mScreenRows + ", mColumns=" + mColumns);
+        markScreenRowDirty(row);
         row = externalToInternalRow(row);
         allocateFullLineIfNecessary(row).setChar(column, codePoint, style);
     }
@@ -462,6 +561,7 @@ public final class TerminalBuffer {
     /** Support for http://vt100.net/docs/vt510-rm/DECCARA and http://vt100.net/docs/vt510-rm/DECCARA */
     public void setOrClearEffect(int bits, boolean setOrClear, boolean reverse, boolean rectangular, int leftMargin, int rightMargin, int top, int left,
                                  int bottom, int right) {
+        markScreenRowsDirty(top, bottom);
         for (int y = top; y < bottom; y++) {
             TerminalRow line = mLines[externalToInternalRow(y)];
             int startOfLine = (rectangular || y == top) ? left : leftMargin;
