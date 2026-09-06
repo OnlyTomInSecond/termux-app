@@ -7,6 +7,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Handler;
@@ -1116,14 +1117,21 @@ public final class TerminalView extends View {
             }
 
             // Damage-list rendering: only repaint the rows that changed this frame (if any were
-            // marked); otherwise fall back to a full repaint (system/legacy invalidations).
+            // marked and the actual damaged region is only part of the view); otherwise fall back
+            // to a full repaint. A damage-list marker must NOT be trusted when the whole view was
+            // invalidated (e.g. a key press full-invalidate coalesced with a partial screen update
+            // in the same frame): drawing only the marked rows over a full-area clear would wipe
+            // every other row until the next scroll/full redraw.
+            Rect clip = canvas.getClipBounds();
+            final boolean fullViewDamage = clip == null
+                || (clip.width() >= getWidth() && clip.height() >= getHeight());
             int firstRow = 0;
             int rowCount = mEmulator.mRows;
-            if (mPartialFirstRow >= 0) {
+            if (mPartialFirstRow >= 0 && !fullViewDamage) {
                 firstRow = mPartialFirstRow;
                 rowCount = mPartialLastRow - firstRow;
-                mPartialFirstRow = -1;
             }
+            mPartialFirstRow = -1;
             mRenderer.render(mEmulator, canvas, mTopRow, firstRow, rowCount, sel[0], sel[1], sel[2], sel[3]);
             maybeLogPerfFrame();
 
