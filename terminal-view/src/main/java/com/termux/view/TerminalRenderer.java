@@ -48,15 +48,6 @@ public final class TerminalRenderer {
      */
     private final SparseArray<Float> mCodePointWidthCache = new SparseArray<>();
 
-    /**
-     * Debug-only per-frame counters (M-draw metric). Reset at the start of each
-     * {@link #render(TerminalEmulator, Canvas, int, int, int, int, int)} and read by
-     * {@code TerminalView} when terminal view perf logging is enabled.
-     */
-    public int mPerfRowsDrawn;
-    public int mPerfRunsDrawn;
-    public int mPerfMeasureCalls;
-
     public TerminalRenderer(int textSize, Typeface typeface) {
         mTextSize = textSize;
         mTypeface = typeface;
@@ -88,9 +79,6 @@ public final class TerminalRenderer {
      */
     public final void render(TerminalEmulator mEmulator, Canvas canvas, int topRow, int firstRow, int rowCount,
                              int selectionY1, int selectionY2, int selectionX1, int selectionX2) {
-        mPerfRowsDrawn = 0;
-        mPerfRunsDrawn = 0;
-        mPerfMeasureCalls = 0;
         final boolean reverseVideo = mEmulator.isReverseVideo();
         final int columns = mEmulator.mColumns;
         final int cursorCol = mEmulator.getCursorCol();
@@ -109,7 +97,6 @@ public final class TerminalRenderer {
         for (int v = firstRow; v < firstRow + rowCount; v++) {
             final float heightOffset = mFontLineSpacingAndAscent + (v + 1) * mFontLineSpacing;
             final int row = topRow + v;
-            mPerfRowsDrawn++;
 
             final int cursorX = (row == cursorRow && cursorVisible) ? cursorCol : -1;
             int selx1 = -1, selx2 = -1;
@@ -155,7 +142,6 @@ public final class TerminalRenderer {
                     if (cachedWidth != null) {
                         measuredCodePointWidth = cachedWidth;
                     } else {
-                        mPerfMeasureCalls++;
                         measuredCodePointWidth = mTextPaint.measureText(line, currentCharIndex, charsForCodePoint);
                         if (mCodePointWidthCache.size() >= MAX_CACHED_CODE_POINT_WIDTHS) {
                             // Bound memory: reset when full instead of an LRU (keep it simple).
@@ -214,7 +200,6 @@ public final class TerminalRenderer {
     private void drawTextRun(Canvas canvas, char[] text, int[] palette, float y, int startColumn, int runWidthColumns,
                              int startCharIndex, int runWidthChars, float mes, int cursor, int cursorStyle,
                              long textStyle, boolean reverseVideo) {
-        mPerfRunsDrawn++;
         int foreColor = TextStyle.decodeForeColor(textStyle);
         final int effect = TextStyle.decodeEffect(textStyle);
         int backColor = TextStyle.decodeBackColor(textStyle);
