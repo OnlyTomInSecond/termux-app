@@ -101,6 +101,11 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
         boolean isTerminalViewKeyLoggingEnabled = mActivity.getPreferences().isTerminalViewKeyLoggingEnabled();
         mActivity.getTerminalView().setIsTerminalViewKeyLoggingEnabled(isTerminalViewKeyLoggingEnabled);
 
+        // Piggyback on the same debug toggle to also emit per-frame M-draw counters
+        // (TerminalRenderer rows/runs/native measureText calls) used as the M-draw metric
+        // in the performance optimization plan.
+        mActivity.getTerminalView().setIsTerminalViewPerfLoggingEnabled(isTerminalViewKeyLoggingEnabled);
+
         // Piggyback on the terminal view key logging toggle for now, should add a separate toggle in future
         mActivity.getTermuxActivityRootView().setIsRootViewLoggingEnabled(isTerminalViewKeyLoggingEnabled);
         ViewUtils.setIsViewUtilsLoggingEnabled(isTerminalViewKeyLoggingEnabled);

@@ -48,6 +48,13 @@ public final class TerminalView extends View {
     /** Log terminal view key and IME events. */
     private static boolean TERMINAL_VIEW_KEY_LOGGING_ENABLED = false;
 
+    /**
+     * Log per-frame M-draw counters (rows/runs/native measureText calls) from
+     * {@link TerminalRenderer}. Debug-only; piggybacks on the terminal view key
+     * logging toggle, see {@code TermuxTerminalViewClient#onStart()}.
+     */
+    private static boolean TERMINAL_VIEW_PERF_LOGGING_ENABLED = false;
+
     /** The currently displayed terminal session, whose emulator is {@link #mEmulator}. */
     public TerminalSession mTermSession;
     /** Our terminal emulator whose session is {@link #mTermSession}. */
@@ -276,8 +283,31 @@ public final class TerminalView extends View {
      *
      * @param value The boolean value that defines the state.
      */
+    /** When non-zero, the last frame in which a perf log line was emitted. */
+    private long mLastPerfLogUptime;
+
     public void setIsTerminalViewKeyLoggingEnabled(boolean value) {
         TERMINAL_VIEW_KEY_LOGGING_ENABLED = value;
+    }
+
+    /**
+     * Enables or disables per-frame M-draw counter logging (see {@link TerminalRenderer}
+     * counters). Has no effect in release builds since it is only turned on together with
+     * the debug "Terminal View Key Logging" preference.
+     */
+    public void setIsTerminalViewPerfLoggingEnabled(boolean value) {
+        TERMINAL_VIEW_PERF_LOGGING_ENABLED = value;
+    }
+
+    /** Emit the per-frame M-draw counters, throttled so a flood of frames does not spam logs. */
+    private void maybeLogPerfFrame() {
+        if (!TERMINAL_VIEW_PERF_LOGGING_ENABLED || mRenderer == null) return;
+        long now = SystemClock.uptimeMillis();
+        if (now - mLastPerfLogUptime < 250) return;
+        mLastPerfLogUptime = now;
+        mClient.logInfo(LOG_TAG, "PERF frame rows=" + mRenderer.mPerfRowsDrawn
+            + " runs=" + mRenderer.mPerfRunsDrawn
+            + " measureText=" + mRenderer.mPerfMeasureCalls);
     }
 
 
@@ -1017,6 +1047,7 @@ public final class TerminalView extends View {
             }
 
             mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3]);
+            maybeLogPerfFrame();
 
             // render the text selection handles
             renderTextSelection();
