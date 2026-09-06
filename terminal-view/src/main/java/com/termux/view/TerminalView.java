@@ -38,6 +38,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 
 import com.termux.terminal.KeyHandler;
+import com.termux.terminal.TerminalBuffer;
 import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalSession;
 import com.termux.view.textselection.TextSelectionCursorController;
@@ -75,6 +76,8 @@ public final class TerminalView extends View {
 
     /** The top row of text to display. Ranges from -activeTranscriptRows to 0. */
     int mTopRow;
+    /** Row where the cursor was rendered at the last screen update, or -1 if it was not visible. */
+    private int mLastRenderedCursorRow = -1;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     float mScaleFactor = 1.f;
@@ -488,6 +491,7 @@ public final class TerminalView extends View {
         if (mEmulator == null) return;
 
         int rowsInHistory = mEmulator.getScreen().getActiveTranscriptRows();
+        final int oldTopRow = mTopRow;
         if (mTopRow < -rowsInHistory) mTopRow = -rowsInHistory;
 
         if (isSelectingText() || mEmulator.isAutoScrollDisabled()) {
@@ -524,7 +528,47 @@ public final class TerminalView extends View {
 
         mEmulator.clearScrollCounter();
 
-        invalidate();
+        // Only repaint the rows that actually changed instead of the whole screen (T1.2).
+        // A full repaint is still used for whole-screen scrolls, full clears, resizes,
+        // buffer switches, or when the scroll position changed.
+        TerminalBuffer buffer = mEmulator.getScreen();
+        TerminalBuffer.ScreenChanges screenChanges = buffer.getScreenChanges();
+        boolean fullRepaint = screenChanges.fullRedraw || screenChanges.scrollRows > 0 || mTopRow != oldTopRow;
+
+        int firstRow = mEmulator.mRows;
+        int lastRow = -1;
+        if (!fullRepaint) {
+            for (int row = 0; row < mEmulator.mRows; row++) {
+                if (buffer.isScreenRowDirty(row)) {
+                    if (row < firstRow) firstRow = row;
+                    if (row > lastRow) lastRow = row;
+                }
+            }
+            // The cursor may have moved without any cell changing, so also repaint its
+            // previous and current rows; if nothing at all changed, keep the legacy full refresh.
+            if (mEmulator.shouldCursorBeVisible()) {
+                int cursorRow = mEmulator.getCursorRow();
+                if (cursorRow < firstRow) firstRow = cursorRow;
+                if (cursorRow > lastRow) lastRow = cursorRow;
+            }
+            if (mLastRenderedCursorRow >= 0) {
+                if (mLastRenderedCursorRow < firstRow) firstRow = mLastRenderedCursorRow;
+                if (mLastRenderedCursorRow > lastRow) lastRow = mLastRenderedCursorRow;
+            }
+            fullRepaint = (lastRow < 0);
+        }
+        mLastRenderedCursorRow = mEmulator.shouldCursorBeVisible() ? mEmulator.getCursorRow() : -1;
+        buffer.clearScreenChanges();
+
+        if (fullRepaint || mRenderer == null) {
+            invalidate();
+        } else {
+            int top = (firstRow - mTopRow) * mRenderer.mFontLineSpacing;
+            int bottom = (lastRow + 1 - mTopRow) * mRenderer.mFontLineSpacing;
+            if (top < 0) top = 0;
+            if (bottom > getHeight()) bottom = getHeight();
+            if (bottom > top) invalidate(0, top, getWidth(), bottom);
+        }
         if (mAccessibilityEnabled) setContentDescription(getText());
     }
 
