@@ -17,3 +17,18 @@ timestamp,git_sha,device,phase,task_id,metric,value,unit,notes
 2026-09-06T10:30:00Z,7c8d3866,M2007J3SC-api36,T3.1,M-frame:legacy_janky_pct,86.4,%,stress=sustained-CJK-flood autostart 
 2026-09-06T10:30:00Z,HEAD,T3.4-reverted,M2007J3SC-api36,T3.4,M-frame:frames_8s,131,count,T3.4-worker-ondraw-lock measured-then-reverted
 2026-09-06T10:30:00Z,HEAD,T3.4-reverted,M2007J3SC-api36,T3.4,M-frame:p50_frame,19,ms,T3.4-worker-ondraw-lock measured-then-reverted
+2026-09-06T14:08:37.507021536Z,a59c1329,jvm-Arch,T0.1,M-parse:plain,149794285,bytes/s,ms=7 bytes=1048560 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:08:37.572240423Z,a59c1329,jvm-Arch,T0.1,M-parse:ansi,131072000,bytes/s,ms=8 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:08:37.628388972Z,a59c1329,jvm-Arch,T0.1,M-parse:tui,149796571,bytes/s,ms=7 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:08:39.534339952Z,a59c1329,jvm-Arch,T0.1,M-parse:cjk,3869284,bytes/s,ms=271 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:08:39.600872347Z,a59c1329,jvm-Arch,T0.1,M-parse:mixed,116508444,bytes/s,ms=9 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:26:19.599123417Z,a59c1329,jvm-Arch,T0.1,M-parse:plain,131070000,bytes/s,ms=8 bytes=1048560 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:26:19.664758646Z,a59c1329,jvm-Arch,T0.1,M-parse:ansi,131072000,bytes/s,ms=8 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:26:19.721010078Z,a59c1329,jvm-Arch,T0.1,M-parse:tui,149796571,bytes/s,ms=7 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:26:19.996573589Z,a59c1329,jvm-Arch,T0.1,M-parse:cjk,28339891,bytes/s,ms=37 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:26:20.060829385Z,a59c1329,jvm-Arch,T0.1,M-parse:mixed,116508444,bytes/s,ms=9 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:43:23.498828182Z,a59c1329,jvm-Arch,T0.1,M-parse:plain,131070000,bytes/s,ms=8 bytes=1048560 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:43:23.565487065Z,a59c1329,jvm-Arch,T0.1,M-parse:ansi,131072000,bytes/s,ms=8 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:43:23.621765799Z,a59c1329,jvm-Arch,T0.1,M-parse:tui,149796571,bytes/s,ms=7 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:43:23.869918442Z,a59c1329,jvm-Arch,T0.1,M-parse:cjk,30840470,bytes/s,ms=34 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T14:43:23.936132188Z,a59c1329,jvm-Arch,T0.1,M-parse:mixed,116508444,bytes/s,ms=9 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux

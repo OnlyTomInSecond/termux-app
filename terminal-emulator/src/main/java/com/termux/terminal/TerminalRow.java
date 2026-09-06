@@ -50,6 +50,19 @@ public final class TerminalRow {
     /** If this row might contain chars with width != 1, used for deactivating fast path */
     boolean mHasNonOneWidthOrSurrogateChars;
 
+    /**
+     * Lazily allocated cache mapping each column to the char index in {@link #mText} where the
+     * cell covering that column starts (adjacent columns covered by one wide char share the same
+     * index). Only allocated once the row contains wide/surrogate chars, since in a pure-ASCII row
+     * the boundary of column i is simply i. Prefix entries [0, {@link #mColumnBoundaryCacheValid})
+     * are valid; {@link #findStartOfColumn} resumes scanning from the cell containing the last
+     * valid column (which handles watermarks that sit inside a wide char) instead of re-walking
+     * the row from index 0. Used as {@code short[]} since char indices are bounded by
+     * {@link #mSpaceUsed} (a short).
+     */
+    private short[] mColumnBoundaryCache;
+    private int mColumnBoundaryCacheValid;
+
     /** Construct a blank row (containing only whitespace, ' ') with a specified style. */
     public TerminalRow(int columns, long style) {
         mColumns = columns;
@@ -91,7 +104,80 @@ public final class TerminalRow {
     /** Note that the column may end of second half of wide character. */
     public int findStartOfColumn(int column) {
         if (column == mColumns) return getSpaceUsed();
+        if (column < mColumns) {
+            short[] cache = mColumnBoundaryCache;
+            if (cache == null) {
+                cache = mColumnBoundaryCache = new short[mColumns];
+            } else if (column < mColumnBoundaryCacheValid) {
+                return cache[column];
+            }
+            return scanToColumnCached(cache, column);
+        }
+        // Columns beyond the screen only occur in selection edge cases; fall back to the
+        // original uncached scan which reads into the padding region like the old code did.
+        return scanToColumnUncached(column);
+    }
 
+    /**
+     * Scan cells forward from the boundary-cache watermark to {@code targetColumn}, filling cache
+     * entries along the way. Resumes from the cell containing the last valid column, so sequential
+     * and random lookups are amortized O(1) instead of O(row length).
+     */
+    private int scanToColumnCached(short[] cache, int targetColumn) {
+        int charIndex;
+        int column;
+        if (mColumnBoundaryCacheValid > 0) {
+            // Resume from the cell containing column (valid - 1). The watermark is not guaranteed
+            // to sit on a cell boundary (invalidations clip it to the first modified column), so
+            // find that cell's real start/end columns; if the target lies inside it, it is the
+            // answer. Otherwise continue scanning at the cell's end.
+            int startCol = mColumnBoundaryCacheValid - 1;
+            while (startCol > 0 && cache[startCol - 1] == cache[startCol]) startCol--;
+            int cellStart = cache[startCol];
+            int cellWidth = Math.max(1, WcWidth.width(mText, cellStart));
+            int cellEndColumn = startCol + cellWidth;
+            if (cellEndColumn > mColumnBoundaryCacheValid) {
+                // The cell containing (valid - 1) extends past the watermark (the watermark can
+                // sit inside a wide char after invalidation): fill the gap so later lookups of
+                // those columns hit correct entries instead of stale ones.
+                int fillEnd = Math.min(cellEndColumn, mColumns);
+                for (int col = mColumnBoundaryCacheValid; col < fillEnd; col++) cache[col] = (short) cellStart;
+                mColumnBoundaryCacheValid = fillEnd;
+            }
+            if (targetColumn < cellEndColumn) return cellStart;
+            charIndex = cellStart + (Character.isHighSurrogate(mText[cellStart]) ? 2 : 1);
+            while (charIndex < mSpaceUsed && WcWidth.width(mText, charIndex) <= 0) {
+                charIndex += Character.isHighSurrogate(mText[charIndex]) ? 2 : 1;
+            }
+            column = cellEndColumn;
+        } else {
+            charIndex = 0;
+            column = 0;
+        }
+        while (true) {
+            int cellStart = charIndex;
+            char c = mText[charIndex];
+            boolean isHigh = Character.isHighSurrogate(c);
+            int codePoint = isHigh ? Character.toCodePoint(c, mText[charIndex + 1]) : c;
+            int wcwidth = WcWidth.width(codePoint);
+            if (wcwidth > 0) {
+                int cellEndColumn = Math.min(column + wcwidth, mColumns);
+                for (int col = column; col < cellEndColumn; col++) cache[col] = (short) cellStart;
+                mColumnBoundaryCacheValid = cellEndColumn;
+                if (targetColumn < cellEndColumn) return cellStart;
+                charIndex += isHigh ? 2 : 1;
+                while (charIndex < mSpaceUsed && WcWidth.width(mText, charIndex) <= 0) {
+                    charIndex += Character.isHighSurrogate(mText[charIndex]) ? 2 : 1;
+                }
+                column = cellEndColumn;
+            } else {
+                charIndex += isHigh ? 2 : 1;
+            }
+        }
+    }
+
+    /** Original full-scan used for out-of-screen column queries (preserves legacy behavior). */
+    private int scanToColumnUncached(int column) {
         int currentColumn = 0;
         int currentCharIndex = 0;
         while (true) { // 0<2 1 < 2
@@ -128,17 +214,11 @@ public final class TerminalRow {
     }
 
     private boolean wideDisplayCharacterStartingAt(int column) {
-        for (int currentCharIndex = 0, currentColumn = 0; currentCharIndex < mSpaceUsed; ) {
-            char c = mText[currentCharIndex++];
-            int codePoint = Character.isHighSurrogate(c) ? Character.toCodePoint(c, mText[currentCharIndex++]) : c;
-            int wcwidth = WcWidth.width(codePoint);
-            if (wcwidth > 0) {
-                if (currentColumn == column && wcwidth == 2) return true;
-                currentColumn += wcwidth;
-                if (currentColumn > column) return false;
-            }
-        }
-        return false;
+        if (column < 0 || column >= mColumns) return false;
+        int cellStart = findStartOfColumn(column);
+        short[] cache = mColumnBoundaryCache;
+        boolean cellStartsAtColumn = (column == 0) || cache[column] != cache[column - 1];
+        return cellStartsAtColumn && WcWidth.width(mText, cellStart) == 2;
     }
 
     public void clear(long style) {
@@ -146,6 +226,7 @@ public final class TerminalRow {
         Arrays.fill(mStyle, style);
         mSpaceUsed = (short) mColumns;
         mHasNonOneWidthOrSurrogateChars = false;
+        mColumnBoundaryCacheValid = 0;
     }
 
     // https://github.com/steven676/Android-Terminal-Emulator/commit/9a47042620bec87617f0b4f5d50568535668fe26
@@ -170,6 +251,7 @@ public final class TerminalRow {
         final boolean newIsCombining = newCodePointDisplayWidth <= 0;
 
         boolean wasExtraColForWideChar = (columnToSet > 0) && wideDisplayCharacterStartingAt(columnToSet - 1);
+        boolean overwritingWideCharInNextColumn = newCodePointDisplayWidth == 2 && wideDisplayCharacterStartingAt(columnToSet + 1);
 
         if (newIsCombining) {
             // When standing at second half of wide character and inserting combining:
@@ -178,7 +260,6 @@ public final class TerminalRow {
             // Check if we are overwriting the second half of a wide character starting at the previous column:
             if (wasExtraColForWideChar) setChar(columnToSet - 1, ' ', style);
             // Check if we are overwriting the first half of a wide character starting at the next column:
-            boolean overwritingWideCharInNextColumn = newCodePointDisplayWidth == 2 && wideDisplayCharacterStartingAt(columnToSet + 1);
             if (overwritingWideCharInNextColumn) setChar(columnToSet + 1, ' ', style);
         }
 
@@ -201,6 +282,17 @@ public final class TerminalRow {
             int combiningCharsCount = WcWidth.zeroWidthCharsCount(mText, oldStartOfColumnIndex, oldStartOfColumnIndex + oldCharactersUsedForColumn);
             if (combiningCharsCount >= MAX_COMBINING_CHARACTERS_PER_COLUMN)
                 return;
+        }
+
+        // Invalidate cached column→char boundaries from the first modified column onwards.
+        // Placed after all findStartOfColumn reads above (they extend the watermark), since
+        // entries >= firstMutatedColumn would otherwise survive the mutation stale. The first
+        // modified column is always a cell start in the pre-mutation state: when columnToSet
+        // is the second half of a wide char it is adjusted above to the wide char's start.
+        if (mColumnBoundaryCache != null) {
+            int firstMutatedColumn = wasExtraColForWideChar ? columnToSet - 1 : columnToSet;
+            if (firstMutatedColumn < mColumnBoundaryCacheValid)
+                mColumnBoundaryCacheValid = firstMutatedColumn;
         }
 
         // Find how many chars this column will need

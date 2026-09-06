@@ -140,7 +140,11 @@ public final class TerminalSession extends TerminalOutput {
                         int read = termIn.read(buffer);
                         if (read == -1) return;
                         if (!mProcessToTerminalIOQueue.write(buffer, 0, read)) return;
-                        mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
+                        // T3.3: keep at most one MSG_NEW_INPUT in flight. The handler drains the
+                        // whole queue per batch and reschedules itself while input remains, so
+                        // a message per 4 KiB read would only add empty wakeups during floods.
+                        if (!mMainThreadHandler.hasMessages(MSG_NEW_INPUT))
+                            mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
                     }
                 } catch (Exception e) {
                     // Ignore, just shutting down.

@@ -73,6 +73,10 @@ public final class TerminalView extends View {
     /** Row/col where the cursor was rendered at the last screen update; row is -1 if it was not visible. */
     private int mLastRenderedCursorRow = -1;
     private int mLastRenderedCursorCol;
+    /** Minimum interval between full-text rebuilds for the accessibility description (T1.5). */
+    private static final long ACCESSIBILITY_TEXT_UPDATE_MIN_INTERVAL_MS = 250;
+    /** Trailing-edge refresh of the accessibility description, debounced in {@link #onScreenUpdated}. */
+    private final Runnable mAccessibilityRefreshRunnable = () -> setContentDescription(getText());
     /**
      * Rows that need repainting this frame (damage-list rendering). When set, onDraw only
      * redraws [mPartialFirstRow, mPartialLastRow); otherwise the whole screen is redrawn
@@ -563,7 +567,14 @@ public final class TerminalView extends View {
         } else {
             requestRowsRedraw(firstRow, lastRow + 1);
         }
-        if (mAccessibilityEnabled) setContentDescription(getText());
+        if (mAccessibilityEnabled) {
+            // T1.5: rebuilding the full visible text for the accessibility description on every
+            // output batch is wasteful (and competes with parsing/drawing under flood). Debounce
+            // instead: keep postponing a trailing refresh while updates keep coming, so the rate
+            // is bounded to ~4 rebuilds/s and the final state is still always described.
+            removeCallbacks(mAccessibilityRefreshRunnable);
+            postDelayed(mAccessibilityRefreshRunnable, ACCESSIBILITY_TEXT_UPDATE_MIN_INTERVAL_MS);
+        }
     }
 
     /** This must be called by the hosting activity in {@link Activity#onContextMenuClosed(Menu)}
