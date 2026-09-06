@@ -47,7 +47,7 @@ public final class TerminalSession extends TerminalOutput {
      * A queue written to from the main thread due to user interaction, and read by another thread which forwards by
      * writing to the {@link #mTerminalFileDescriptor}.
      */
-    final ByteQueue mTerminalToProcessIOQueue = new ByteQueue(4096);
+    final ByteQueue mTerminalToProcessIOQueue = new ByteQueue(512 * 1024);
     /** Buffer to write translate code points into utf8 before writing to mTerminalToProcessIOQueue */
     private final byte[] mUtf8InputBuffer = new byte[5];
 
@@ -178,7 +178,8 @@ public final class TerminalSession extends TerminalOutput {
 
     }
 
-    /** Write data to the shell process. */
+    /** Write data to the shell process. The queue is generously sized (512 KiB) so the main
+     *  thread only blocks for extreme paste sizes (> 512 KiB) into a stuck child process. */
     @Override
     public void write(byte[] data, int offset, int count) {
         if (mShellPid > 0) mTerminalToProcessIOQueue.write(data, offset, count);
