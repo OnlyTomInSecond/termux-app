@@ -32,3 +32,23 @@ timestamp,git_sha,device,phase,task_id,metric,value,unit,notes
 2026-09-06T14:43:23.621765799Z,a59c1329,jvm-Arch,T0.1,M-parse:tui,149796571,bytes/s,ms=7 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
 2026-09-06T14:43:23.869918442Z,a59c1329,jvm-Arch,T0.1,M-parse:cjk,30840470,bytes/s,ms=34 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
 2026-09-06T14:43:23.936132188Z,a59c1329,jvm-Arch,T0.1,M-parse:mixed,116508444,bytes/s,ms=9 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-06T16:19:50Z,8383299b,M2007J3SC-api36,T0.2,M-frame:janky_pct,0,%,stress=light-seq500k frames=0 janky=0 no-frames-rendered
+2026-09-06T16:19:50Z,8383299b,M2007J3SC-api36,T0.2,M-frame:pct90_frame,0,ms,stress=light-seq500k frames=0 janky=0 no-frames-rendered
+2026-09-06T16:19:50Z,8383299b,M2007J3SC-api36,T0.2,M-frame:pct95_frame,0,ms,stress=light-seq500k frames=0 janky=0 no-frames-rendered
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:frames_8s,509,count,stress=yes-flood
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:janky_pct,0,%,stress=yes-flood frames=509 janky=0
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:pct50_frame,5,ms,stress=yes-flood
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:pct90_frame,9,ms,stress=yes-flood
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:pct95_frame,10,ms,stress=yes-flood
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:legacy_janky_pct,3.73,%,stress=yes-flood
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:frames_10s,405,count,stress=seq5M
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:janky_pct,0,%,stress=seq5M frames=405 janky=0
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:pct50_frame,6,ms,stress=seq5M
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:pct90_frame,9,ms,stress=seq5M
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:pct95_frame,10,ms,stress=seq5M
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:legacy_janky_pct,3.46,%,stress=seq5M
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:frames_8s,382,count,stress=cjk-flood
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:janky_pct,55.76,%,stress=cjk-flood frames=382 janky=213
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:pct50_frame,19,ms,stress=cjk-flood
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:pct90_frame,23,ms,stress=cjk-flood
+2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:legacy_janky_pct,78.80,%,stress=cjk-flood
