@@ -1399,20 +1399,26 @@ public final class TerminalView extends View {
         public void run() {
             try {
                 if (mEmulator != null) {
-                    // Toggle the blink state and then invalidate() the view so
-                    // that onDraw() is called, which then calls TerminalRenderer.render()
-                    // which checks with TerminalEmulator.shouldCursorBeVisible() to decide whether
-                    // to draw the cursor or not
+                    // Toggle the blink state; only the cursor area needs to be repainted (T1.3),
+                    // and nothing at all when the cursor is disabled (tput civis etc.).
                     mCursorVisible = !mCursorVisible;
-                    //mClient.logVerbose(LOG_TAG, "Toggling cursor blink state to " + mCursorVisible);
                     mEmulator.setCursorBlinkState(mCursorVisible);
-                    invalidate();
+                    invalidateCursorRegion();
                 }
             } finally {
                 // Recall the Runnable after mBlinkRate milliseconds to toggle the blink state
                 mTerminalCursorBlinkerHandler.postDelayed(this, mBlinkRate);
             }
         }
+    }
+
+    /** Invalidate only the pixel area around the terminal cursor instead of the whole view. */
+    private void invalidateCursorRegion() {
+        if (mEmulator == null || mRenderer == null || !mEmulator.isCursorEnabled()) return;
+        int left = Math.round(mEmulator.getCursorCol() * mRenderer.mFontWidth);
+        int right = Math.round((mEmulator.getCursorCol() + 2) * mRenderer.mFontWidth); // +2 cols covers wide chars.
+        int top = (mEmulator.getCursorRow() - mTopRow) * mRenderer.mFontLineSpacing;
+        invalidate(left, top, right, top + mRenderer.mFontLineSpacing);
     }
 
 
