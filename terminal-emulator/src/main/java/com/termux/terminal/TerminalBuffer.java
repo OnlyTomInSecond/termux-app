@@ -378,6 +378,11 @@ public final class TerminalBuffer {
 
                 int currentOldCol = 0;
                 long styleAtCol = 0;
+
+                // T4.3: the boundary cache (T4.2a) has already made findStartOfColumn
+                // O(1) inside setChar, which is the dominant cost of the per-cell reflow
+                // loop below. Bulk-copy of entire rows was attempted but breaks reflow
+                // semantics when content was previously wrapped across multiple rows.
                 for (int i = 0; i < lastNonSpaceIndex; i++) {
                     // Note that looping over java character, not cells.
                     char c = oldLine.mText[i];
