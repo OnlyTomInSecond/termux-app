@@ -4,6 +4,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
+import android.util.SparseArray;
 
 import com.termux.terminal.TerminalBuffer;
 import com.termux.terminal.TerminalEmulator;
@@ -17,6 +18,10 @@ import com.termux.terminal.WcWidth;
  * Saves font metrics, so needs to be recreated each time the typeface or font size changes.
  */
 public final class TerminalRenderer {
+
+    /** Cap for {@link #mCodePointWidthCache} to bound memory in unicode-dump workloads. */
+    private static final int MAX_CACHED_CODE_POINT_WIDTHS = 16384;
+
 
     final int mTextSize;
     final Typeface mTypeface;
@@ -32,6 +37,16 @@ public final class TerminalRenderer {
     final int mFontLineSpacingAndAscent;
 
     private final float[] asciiMeasures = new float[127];
+
+    /**
+     * Bounded cache of measured width for non-ASCII code points (T2.2). Paint.measureText() on
+     * every non-ASCII code point every redraw is a dominant native cost in CJK-heavy workloads;
+     * widths only depend on the (fixed) typeface/size of this renderer instance, so caching by
+     * code point removes almost all native measure calls after the first use. The cache is
+     * capped and reset when full to bound memory for unicode-dump workloads. SparseArray keeps
+     * lookups free of Integer boxing.
+     */
+    private final SparseArray<Float> mCodePointWidthCache = new SparseArray<>();
 
     /**
      * Debug-only per-frame counters (M-draw metric). Reset at the start of each
@@ -134,9 +149,20 @@ public final class TerminalRenderer {
                 if (codePoint < asciiMeasures.length) {
                     measuredCodePointWidth = asciiMeasures[codePoint];
                 } else {
-                    // Only non-ASCII code points reach the native Paint.measureText() call.
-                    mPerfMeasureCalls++;
-                    measuredCodePointWidth = mTextPaint.measureText(line, currentCharIndex, charsForCodePoint);
+                    // Only non-ASCII code points reach the native Paint.measureText() call;
+                    // cached per code point so widths are measured once per renderer lifetime.
+                    Float cachedWidth = mCodePointWidthCache.get(codePoint);
+                    if (cachedWidth != null) {
+                        measuredCodePointWidth = cachedWidth;
+                    } else {
+                        mPerfMeasureCalls++;
+                        measuredCodePointWidth = mTextPaint.measureText(line, currentCharIndex, charsForCodePoint);
+                        if (mCodePointWidthCache.size() >= MAX_CACHED_CODE_POINT_WIDTHS) {
+                            // Bound memory: reset when full instead of an LRU (keep it simple).
+                            mCodePointWidthCache.clear();
+                        }
+                        mCodePointWidthCache.put(codePoint, measuredCodePointWidth);
+                    }
                 }
                 final boolean fontWidthMismatch = Math.abs(measuredCodePointWidth / mFontWidth - codePointWcWidth) > 0.01;
 
