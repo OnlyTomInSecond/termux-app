@@ -3,6 +3,7 @@ package com.termux.terminal;
 import android.annotation.SuppressLint;
 import android.os.Handler;
 import android.os.Message;
+import android.os.SystemClock;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -336,17 +337,33 @@ public final class TerminalSession extends TerminalOutput {
     @SuppressLint("HandlerLeak")
     class MainThreadHandler extends Handler {
 
+        /**
+         * T3.1: how much of the main thread one parse batch may spend at most before yielding
+         * back to the looper so input events and vsync/rendering get a chance to run. During a
+         * sustained output flood the queue simply holds the rest until the next batch.
+         */
+        private static final long PARSE_TIME_BUDGET_MS = 6;
+        /** How long to wait before scheduling the next batch when input remains (a real pause, unlike
+         *  an immediate resend, so already-queued input/vsync work is processed first). */
+        private static final long PARSE_BATCH_GAP_MS = 4;
+        /** Max bytes parsed per read slice so the time budget is checked at a fine granularity. */
+        private static final int PARSE_SLICE_BYTES = 8 * 1024;
+
         final byte[] mReceiveBuffer = new byte[64 * 1024];
 
         @Override
         public void handleMessage(Message msg) {
-            int bytesRead = mProcessToTerminalIOQueue.read(mReceiveBuffer, false);
-            if (bytesRead > 0) {
-                mEmulator.append(mReceiveBuffer, bytesRead);
-                notifyScreenUpdate();
-            }
+            if (msg.what == MSG_NEW_INPUT) {
+                drainQueuedInputInBatches();
+            } else if (msg.what == MSG_PROCESS_EXITED) {
+                // Drain whatever input is still queued so the terminal shows the last output before
+                // the process exit banner is appended below.
+                int bytesRead = mProcessToTerminalIOQueue.read(mReceiveBuffer, false);
+                if (bytesRead > 0) {
+                    mEmulator.append(mReceiveBuffer, bytesRead);
+                    notifyScreenUpdate();
+                }
 
-            if (msg.what == MSG_PROCESS_EXITED) {
                 int exitCode = (Integer) msg.obj;
                 cleanupResources(exitCode);
 
@@ -365,6 +382,40 @@ public final class TerminalSession extends TerminalOutput {
                 notifyScreenUpdate();
 
                 mClient.onSessionFinished(TerminalSession.this);
+            }
+        }
+
+        /**
+         * Parse queued pty output in bounded main-thread batches (T3.1). The reader thread posts
+         * one {@link #MSG_NEW_INPUT} per read, which during a flood would otherwise keep the main
+         * thread parsing back-to-back forever and starve input events and rendering. Instead:
+         * <ul>
+         * <li>pending duplicates are dropped (only one batch in flight);</li>
+         * <li>each batch stops after a short time/byte budget;</li>
+         * <li>if more input remains a next batch is scheduled after a gap, letting other main
+         * thread work (input dispatch, vsync) run in between.</li>
+         * </ul>
+         * No bytes are lost: {@link TerminalEmulator#append} keeps its parse state across calls,
+         * and the pty reader blocks on the full queue (natural backpressure) when the batches
+         * cannot keep up.
+         */
+        private void drainQueuedInputInBatches() {
+            removeMessages(MSG_NEW_INPUT);
+            // A batch may have been scheduled just before the process exited; after cleanup the
+            // queue is closed and there is nothing more to drain (the exit path drains last input).
+            if (!isRunning()) return;
+            final long budgetEnd = SystemClock.uptimeMillis() + PARSE_TIME_BUDGET_MS;
+            int totalRead = 0;
+            while (true) {
+                int bytesRead = mProcessToTerminalIOQueue.read(mReceiveBuffer, PARSE_SLICE_BYTES, false);
+                if (bytesRead <= 0) break;
+                totalRead += bytesRead;
+                mEmulator.append(mReceiveBuffer, bytesRead);
+                if (SystemClock.uptimeMillis() >= budgetEnd) break;
+            }
+            notifyScreenUpdate();
+            if (totalRead > 0 && !mProcessToTerminalIOQueue.isEmpty() && isRunning()) {
+                sendEmptyMessageDelayed(MSG_NEW_INPUT, PARSE_BATCH_GAP_MS);
             }
         }
 

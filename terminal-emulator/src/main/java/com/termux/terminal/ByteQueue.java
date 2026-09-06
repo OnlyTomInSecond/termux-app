@@ -18,6 +18,15 @@ final class ByteQueue {
     }
 
     public synchronized int read(byte[] buffer, boolean block) {
+        return read(buffer, buffer.length, block);
+    }
+
+    /**
+     * Same as {@link #read(byte[], boolean)} but never copies more than {@code maxCount} bytes
+     * out of the queue in one call, so a consumer can drain in bounded slices and check the
+     * clock (or other conditions) between slices without blocking the producer.
+     */
+    public synchronized int read(byte[] buffer, int maxCount, boolean block) {
         while (mStoredBytes == 0 && mOpen) {
             if (block) {
                 try {
@@ -34,7 +43,7 @@ final class ByteQueue {
         int totalRead = 0;
         int bufferLength = mBuffer.length;
         boolean wasFull = bufferLength == mStoredBytes;
-        int length = buffer.length;
+        int length = Math.min(buffer.length, maxCount);
         int offset = 0;
         while (length > 0 && mStoredBytes > 0) {
             int oneRun = Math.min(bufferLength - mHead, mStoredBytes);
@@ -49,6 +58,11 @@ final class ByteQueue {
         }
         if (wasFull) notify();
         return totalRead;
+    }
+
+    /** Returns whether the queue currently holds no bytes (regardless of whether it is open). */
+    public synchronized boolean isEmpty() {
+        return mStoredBytes == 0;
     }
 
     /**
