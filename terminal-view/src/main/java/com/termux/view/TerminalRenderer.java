@@ -62,12 +62,21 @@ public final class TerminalRenderer {
         }
     }
 
-    /** Render the terminal to a canvas with at a specified row scroll, and an optional rectangular selection. */
-    public final void render(TerminalEmulator mEmulator, Canvas canvas, int topRow,
+    /**
+     * Render a range of terminal rows to a canvas.
+     *
+     * @param topRow the top row of the display (0 or negative when scrolled into history)
+     * @param firstRow 0-based index of the first visual row to draw
+     * @param rowCount number of visual rows to draw. Callers only repaint rows whose content
+     *                 actually changed (damage-list rendering, see TerminalView), so rows not
+     *                 in this range keep their previously drawn pixels.
+     */
+    public final void render(TerminalEmulator mEmulator, Canvas canvas, int topRow, int firstRow, int rowCount,
                              int selectionY1, int selectionY2, int selectionX1, int selectionX2) {
-        mPerfRowsDrawn = mPerfRunsDrawn = mPerfMeasureCalls = 0;
+        mPerfRowsDrawn = 0;
+        mPerfRunsDrawn = 0;
+        mPerfMeasureCalls = 0;
         final boolean reverseVideo = mEmulator.isReverseVideo();
-        final int endRow = topRow + mEmulator.mRows;
         final int columns = mEmulator.mColumns;
         final int cursorCol = mEmulator.getCursorCol();
         final int cursorRow = mEmulator.getCursorRow();
@@ -79,9 +88,12 @@ public final class TerminalRenderer {
         if (reverseVideo)
             canvas.drawColor(palette[TextStyle.COLOR_INDEX_FOREGROUND], PorterDuff.Mode.SRC);
 
-        float heightOffset = mFontLineSpacingAndAscent;
-        for (int row = topRow; row < endRow; row++) {
-            heightOffset += mFontLineSpacing;
+        // The pixel position of visual row v is independent of topRow: the original incremental
+        // heightOffset equals mFontLineSpacingAndAscent + (v + 1) * mFontLineSpacing after the
+        // rows above it have been drawn, which is what this formula computes directly.
+        for (int v = firstRow; v < firstRow + rowCount; v++) {
+            final float heightOffset = mFontLineSpacingAndAscent + (v + 1) * mFontLineSpacing;
+            final int row = topRow + v;
             mPerfRowsDrawn++;
 
             final int cursorX = (row == cursorRow && cursorVisible) ? cursorCol : -1;

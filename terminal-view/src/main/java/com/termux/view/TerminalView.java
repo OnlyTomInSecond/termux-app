@@ -79,6 +79,13 @@ public final class TerminalView extends View {
     /** Row/col where the cursor was rendered at the last screen update; row is -1 if it was not visible. */
     private int mLastRenderedCursorRow = -1;
     private int mLastRenderedCursorCol;
+    /**
+     * Rows that need repainting this frame (damage-list rendering). When set, onDraw only
+     * redraws [mPartialFirstRow, mPartialLastRow); otherwise the whole screen is redrawn
+     * (fallback for system/legacy invalidations).
+     */
+    private int mPartialFirstRow = -1;
+    private int mPartialLastRow;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     float mScaleFactor = 1.f;
@@ -560,8 +567,8 @@ public final class TerminalView extends View {
             boolean cursorChanged = cursorVisible != (mLastRenderedCursorRow >= 0)
                 || cursorVisible && (cursorRow != mLastRenderedCursorRow || cursorCol != mLastRenderedCursorCol);
             if (cursorChanged) {
-                if (mLastRenderedCursorRow >= 0) invalidateCellRect(mLastRenderedCursorRow, mLastRenderedCursorCol); // erase old
-                if (cursorVisible) invalidateCellRect(cursorRow, cursorCol);
+                if (mLastRenderedCursorRow >= 0) requestRowsRedraw(mLastRenderedCursorRow, mLastRenderedCursorRow + 1); // erase old
+                if (cursorVisible) requestRowsRedraw(cursorRow, cursorRow + 1);
             }
             setLastRenderedCursor(cursorVisible, cursorRow, cursorCol);
             buffer.clearScreenChanges();
@@ -583,13 +590,9 @@ public final class TerminalView extends View {
         buffer.clearScreenChanges();
 
         if (fullRepaint) {
-            invalidate();
+            requestFullRedraw();
         } else {
-            int top = (firstRow - mTopRow) * mRenderer.mFontLineSpacing;
-            int bottom = (lastRow + 1 - mTopRow) * mRenderer.mFontLineSpacing;
-            if (top < 0) top = 0;
-            if (bottom > getHeight()) bottom = getHeight();
-            if (bottom > top) invalidate(0, top, getWidth(), bottom);
+            requestRowsRedraw(firstRow, lastRow + 1);
         }
         if (mAccessibilityEnabled) setContentDescription(getText());
     }
@@ -615,7 +618,7 @@ public final class TerminalView extends View {
     public void setTypeface(Typeface newTypeface) {
         mRenderer = new TerminalRenderer(mRenderer.mTextSize, newTypeface);
         updateSize();
-        invalidate();
+        requestFullRedraw();
     }
 
     @Override
@@ -679,7 +682,7 @@ public final class TerminalView extends View {
                 handleKeyCode(up ? KeyEvent.KEYCODE_DPAD_UP : KeyEvent.KEYCODE_DPAD_DOWN, 0);
             } else {
                 mTopRow = Math.min(0, Math.max(-(mEmulator.getScreen().getActiveTranscriptRows()), mTopRow + (up ? -1 : 1)));
-                if (!awakenScrollBars()) invalidate();
+                if (!awakenScrollBars()) requestFullRedraw();
             }
         }
     }
@@ -871,7 +874,7 @@ public final class TerminalView extends View {
         }
 
         if (mClient.onKeyDown(keyCode, event, mTermSession)) {
-            invalidate();
+            requestFullRedraw();
             return true;
         } else if (event.isSystem() && (!mClient.shouldBackButtonBeMappedToEscape() || keyCode != KeyEvent.KEYCODE_BACK)) {
             return super.onKeyDown(keyCode, event);
@@ -934,7 +937,7 @@ public final class TerminalView extends View {
             inputCodePoint(event.getDeviceId(), result, controlDown, leftAltDown);
         }
 
-        if (mCombiningAccent != oldCombiningAccent) invalidate();
+        if (mCombiningAccent != oldCombiningAccent) requestFullRedraw();
 
         return true;
     }
@@ -1057,7 +1060,7 @@ public final class TerminalView extends View {
         if (mEmulator == null && keyCode != KeyEvent.KEYCODE_BACK) return true;
 
         if (mClient.onKeyUp(keyCode, event)) {
-            invalidate();
+            requestFullRedraw();
             return true;
         } else if (event.isSystem()) {
             // Let system key events through.
@@ -1097,7 +1100,7 @@ public final class TerminalView extends View {
 
             mTopRow = 0;
             scrollTo(0, 0);
-            invalidate();
+            requestFullRedraw();
         }
     }
 
@@ -1112,7 +1115,16 @@ public final class TerminalView extends View {
                 mTextSelectionCursorController.getSelectors(sel);
             }
 
-            mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3]);
+            // Damage-list rendering: only repaint the rows that changed this frame (if any were
+            // marked); otherwise fall back to a full repaint (system/legacy invalidations).
+            int firstRow = 0;
+            int rowCount = mEmulator.mRows;
+            if (mPartialFirstRow >= 0) {
+                firstRow = mPartialFirstRow;
+                rowCount = mPartialLastRow - firstRow;
+                mPartialFirstRow = -1;
+            }
+            mRenderer.render(mEmulator, canvas, mTopRow, firstRow, rowCount, sel[0], sel[1], sel[2], sel[3]);
             maybeLogPerfFrame();
 
             // render the text selection handles
@@ -1436,16 +1448,34 @@ public final class TerminalView extends View {
 
     /** Invalidate only the pixel area around the terminal cursor instead of the whole view. */
     private void invalidateCursorRegion() {
-        if (mEmulator == null || mRenderer == null || !mEmulator.isCursorEnabled()) return;
-        invalidateCellRect(mEmulator.getCursorRow(), mEmulator.getCursorCol());
+        if (mEmulator == null || !mEmulator.isCursorEnabled()) return;
+        requestRowsRedraw(mEmulator.getCursorRow(), mEmulator.getCursorRow() + 1);
     }
 
-    /** Invalidate the cell at (row, col); the 2-column width covers wide characters. */
-    private void invalidateCellRect(int row, int col) {
+    /** Full-screen repaint on the next onDraw (used by any code path that is not damage-list aware). */
+    private void requestFullRedraw() {
+        mPartialFirstRow = -1;
+        invalidate();
+    }
+
+    /** Mark [firstRow, endRowExclusive) as needing a repaint this frame and invalidate their pixels. */
+    private void requestRowsRedraw(int firstRow, int endRowExclusive) {
         if (mRenderer == null) return;
-        int top = (row - mTopRow) * mRenderer.mFontLineSpacing;
-        int left = Math.round(col * mRenderer.mFontWidth);
-        invalidate(left, top, Math.round((col + 2) * mRenderer.mFontWidth), top + mRenderer.mFontLineSpacing);
+        if (firstRow < 0) firstRow = 0;
+        if (endRowExclusive > mEmulator.mRows) endRowExclusive = mEmulator.mRows;
+        if (endRowExclusive <= firstRow) return;
+        if (mPartialFirstRow == -1) {
+            mPartialFirstRow = firstRow;
+            mPartialLastRow = endRowExclusive;
+        } else {
+            if (firstRow < mPartialFirstRow) mPartialFirstRow = firstRow;
+            if (endRowExclusive > mPartialLastRow) mPartialLastRow = endRowExclusive;
+        }
+        int top = (firstRow - mTopRow) * mRenderer.mFontLineSpacing;
+        int bottom = (endRowExclusive - mTopRow) * mRenderer.mFontLineSpacing;
+        if (top < 0) top = 0;
+        if (bottom > getHeight()) bottom = getHeight();
+        if (bottom > top) invalidate(0, top, getWidth(), bottom);
     }
 
     private void setLastRenderedCursor(boolean visible, int row, int col) {
@@ -1527,13 +1557,13 @@ public final class TerminalView extends View {
         showTextSelectionCursors(event);
         mClient.copyModeChanged(isSelectingText());
 
-        invalidate();
+        requestFullRedraw();
     }
 
     public void stopTextSelectionMode() {
         if (hideTextSelectionCursors()) {
             mClient.copyModeChanged(isSelectingText());
-            invalidate();
+            requestFullRedraw();
         }
     }
 
