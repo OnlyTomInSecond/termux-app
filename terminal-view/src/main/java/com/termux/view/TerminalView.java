@@ -1570,6 +1570,11 @@ public final class TerminalView extends View {
 
     @Override
     protected void onDetachedFromWindow() {
+        // A detached view must not keep posting cursor blink or delayed accessibility
+        // refresh callbacks on the main looper. Apart from avoiding wasted work, this
+        // prevents a destroyed Activity from being retained by the Runnable closure.
+        stopTerminalCursorBlinker();
+        removeCallbacks(mAccessibilityRefreshRunnable);
         super.onDetachedFromWindow();
 
         if (mTextSelectionCursorController != null) {

@@ -52,3 +52,13 @@ timestamp,git_sha,device,phase,task_id,metric,value,unit,notes
 2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:pct50_frame,19,ms,stress=cjk-flood
 2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:pct90_frame,23,ms,stress=cjk-flood
 2026-09-06T16:22:23Z,8383299b,M2007J3SC-api36,T4.2a,M-frame:legacy_janky_pct,78.80,%,stress=cjk-flood
+2026-09-07T13:48:05.492679698Z,4bf5b418,jvm-Arch,T0.1,M-parse:plain,149794285,bytes/s,ms=7 bytes=1048560 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-07T13:48:05.560625705Z,4bf5b418,jvm-Arch,T0.1,M-parse:ansi,131072000,bytes/s,ms=8 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-07T13:48:05.616591468Z,4bf5b418,jvm-Arch,T0.1,M-parse:tui,149796571,bytes/s,ms=7 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-07T13:48:05.864656219Z,4bf5b418,jvm-Arch,T0.1,M-parse:cjk,30840470,bytes/s,ms=34 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-07T13:48:05.932949597Z,4bf5b418,jvm-Arch,T0.1,M-parse:mixed,116508444,bytes/s,ms=9 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-07T13:49:21.919520593Z,4bf5b418,jvm-Arch,T0.1,M-parse:plain,174760000,bytes/s,ms=6 bytes=1048560 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-07T13:49:21.977298844Z,4bf5b418,jvm-Arch,T0.1,M-parse:ansi,149796571,bytes/s,ms=7 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-07T13:49:22.027323917Z,4bf5b418,jvm-Arch,T0.1,M-parse:tui,174762666,bytes/s,ms=6 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-07T13:49:22.273811932Z,4bf5b418,jvm-Arch,T0.1,M-parse:cjk,30840470,bytes/s,ms=34 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux
+2026-09-07T13:49:22.328169529Z,4bf5b418,jvm-Arch,T0.1,M-parse:mixed,149796571,bytes/s,ms=7 bytes=1048576 cols=80 rows=24 transcript=2000 jdk=21.0.12.1 os=Linux

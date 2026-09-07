@@ -512,6 +512,10 @@ public final class WcWidth {
 
     /** Return the terminal display width of a code point: 0, 1 || 2. */
     public static int width(int ucs) {
+        // Printable ASCII is by far the common case in terminal output and cannot
+        // be in either Unicode interval table. Keep it out of the binary searches.
+        if (ucs >= 0x20 && ucs <= 0x7E) return 1;
+
         if (ucs == 0 ||
             ucs == 0x034F ||
             (0x200B <= ucs && ucs <= 0x200F) ||
