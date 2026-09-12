@@ -196,7 +196,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         // we unset clients here as well if it failed, so that we do not leave service and session
         // clients with references to the activity.
         if (mTermuxTerminalSessionActivityClient != null)
-            unsetTermuxTerminalSessionClient();
+            unsetTermuxTerminalSessionClient(mTermuxTerminalSessionActivityClient);
         return false;
     }
 
@@ -768,7 +768,13 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
      * so that the {@link TermuxService} and {@link TerminalSession} and {@link TerminalEmulator}
      * clients do not hold an activity references.
      */
-    public synchronized void unsetTermuxTerminalSessionClient() {
+    public synchronized void unsetTermuxTerminalSessionClient(TermuxTerminalSessionActivityClient termuxTerminalSessionActivityClient) {
+        // Only unset if the caller is still the registered activity client. A destroyed
+        // activity's onDestroy() can run after a newer activity already bound and registered
+        // itself on this service, and must not reset the sessions (shared through the shell
+        // manager) to the no-op client, which would stop terminal view updates.
+        if (mTermuxTerminalSessionActivityClient != termuxTerminalSessionActivityClient) return;
+
         for (int i = 0; i < mShellManager.mTermuxSessions.size(); i++)
             mShellManager.mTermuxSessions.get(i).getTerminalSession().updateTerminalSessionClient(mTermuxTerminalSessionServiceClient);
 

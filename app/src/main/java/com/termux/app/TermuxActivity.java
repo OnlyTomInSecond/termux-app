@@ -354,7 +354,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         if (mTermuxService != null) {
             // Do not leave service and session clients with references to activity.
-            mTermuxService.unsetTermuxTerminalSessionClient();
+            mTermuxService.unsetTermuxTerminalSessionClient(mTermuxTerminalSessionActivityClient);
             mTermuxService = null;
         }
 
