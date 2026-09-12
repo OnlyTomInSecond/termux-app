@@ -569,6 +569,7 @@ public final class TerminalBuffer {
         markScreenRowsDirty(top, bottom);
         for (int y = top; y < bottom; y++) {
             TerminalRow line = mLines[externalToInternalRow(y)];
+            line.markStyleChanged();
             int startOfLine = (rectangular || y == top) ? left : leftMargin;
             int endOfLine = (rectangular || y + 1 == bottom) ? right : rightMargin;
             for (int x = startOfLine; x < endOfLine; x++) {

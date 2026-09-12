@@ -26,6 +26,12 @@ public final class TerminalRenderer {
     final int mTextSize;
     final Typeface mTypeface;
     private final Paint mTextPaint = new Paint();
+    /**
+     * Dedicated paint used only for {@link Paint#measureText} of run widths. It is kept free of
+     * the effect state (fake bold, skew, underline, ...) that {@link #drawTextRun} sets on
+     * {@link #mTextPaint}, so measurements are deterministic and independent of the draw order.
+     */
+    private final Paint mMeasurePaint = new Paint();
 
     /** The width of a single mono spaced character obtained by {@link Paint#measureText(String)} on a single 'X'. */
     final float mFontWidth;
@@ -48,6 +54,55 @@ public final class TerminalRenderer {
      */
     private final SparseArray<Float> mCodePointWidthCache = new SparseArray<>();
 
+    /** One draw run of a row. Mutable and reused through {@link RunBuffer}. */
+    private static final class RowRun {
+        int startColumn;
+        int widthColumns;
+        int startCharIndex;
+        int chars;
+        long style;
+        float measuredWidth;
+        boolean insideCursor;
+        boolean insideSelection;
+    }
+
+    /** Growable, reusable list of {@link RowRun}s. */
+    private static final class RunBuffer {
+        RowRun[] runs = new RowRun[16];
+        int count;
+
+        void reset() {
+            count = 0;
+        }
+
+        RowRun add() {
+            if (count == runs.length) {
+                final RowRun[] grown = new RowRun[count * 2];
+                System.arraycopy(runs, 0, grown, 0, count);
+                runs = grown;
+            }
+            RowRun run = runs[count];
+            if (run == null) {
+                run = new RowRun();
+                runs[count] = run;
+            }
+            count++;
+            return run;
+        }
+    }
+
+    /** Cached runs of one visual row, valid while {@link #version} matches the row's render version. */
+    private static final class RowCache {
+        TerminalRow row;
+        int version = -1;
+        final RunBuffer runs = new RunBuffer();
+    }
+
+    /** Per-visual-row run cache, indexed by the visual row passed to {@link #render}. */
+    private RowCache[] mRowCaches = new RowCache[0];
+    /** Reused list for rows that cannot be cached (rows with the cursor or a selection). */
+    private final RunBuffer mScratchRuns = new RunBuffer();
+
     public TerminalRenderer(int textSize, Typeface typeface) {
         mTextSize = textSize;
         mTypeface = typeface;
@@ -55,6 +110,10 @@ public final class TerminalRenderer {
         mTextPaint.setTypeface(typeface);
         mTextPaint.setAntiAlias(true);
         mTextPaint.setTextSize(textSize);
+
+        mMeasurePaint.setTypeface(typeface);
+        mMeasurePaint.setAntiAlias(true);
+        mMeasurePaint.setTextSize(textSize);
 
         mFontLineSpacing = (int) Math.ceil(mTextPaint.getFontSpacing());
         mFontAscent = (int) Math.ceil(mTextPaint.ascent());
@@ -106,94 +165,155 @@ public final class TerminalRenderer {
             }
 
             TerminalRow lineObject = screen.allocateFullLineIfNecessary(screen.externalToInternalRow(row));
+            final boolean cacheable = cursorX == -1 && selx1 == -1 && selx2 == -1;
+
+            // A row that is known to draw nothing (only spaces with the default style) can be
+            // skipped: drawing spaces is a no-op, so leaving its previously drawn pixels intact is
+            // equivalent. Rows with the cursor or a selection are never skipped.
+            if (cacheable && lineObject.isBlankForRender()) continue;
+
             final char[] line = lineObject.mText;
             final int charsUsedInLine = lineObject.getSpaceUsed();
 
-            long lastRunStyle = 0;
-            boolean lastRunInsideCursor = false;
-            boolean lastRunInsideSelection = false;
-            int lastRunStartColumn = -1;
-            int lastRunStartIndex = 0;
-            boolean lastRunFontWidthMismatch = false;
-            int currentCharIndex = 0;
-            float measuredWidthForRun = 0.f;
-
-            for (int column = 0; column < columns; ) {
-                final char charAtIndex = line[currentCharIndex];
-                final boolean charIsHighsurrogate = Character.isHighSurrogate(charAtIndex);
-                final int charsForCodePoint = charIsHighsurrogate ? 2 : 1;
-                final int codePoint = charIsHighsurrogate ? Character.toCodePoint(charAtIndex, line[currentCharIndex + 1]) : charAtIndex;
-                final int codePointWcWidth = WcWidth.width(codePoint);
-                final boolean insideCursor = (cursorX == column || (codePointWcWidth == 2 && cursorX == column + 1));
-                final boolean insideSelection = column >= selx1 && column <= selx2;
-                final long style = lineObject.getStyle(column);
-
-                // Check if the measured text width for this code point is not the same as that expected by wcwidth().
-                // This could happen for some fonts which are not truly monospace, or for more exotic characters such as
-                // smileys which android font renders as wide.
-                // If this is detected, we draw this code point scaled to match what wcwidth() expects.
-                final float measuredCodePointWidth;
-                if (codePoint < asciiMeasures.length) {
-                    measuredCodePointWidth = asciiMeasures[codePoint];
+            final RunBuffer runs;
+            if (cacheable) {
+                // The run boundaries of this row do not depend on the cursor/selection, so they can
+                // be reused across frames until the row content/style changes (render version bump).
+                final RowCache cache = rowCache(v);
+                if (cache.row == lineObject && cache.version == lineObject.getRenderVersion()) {
+                    runs = cache.runs;
                 } else {
-                    // Only non-ASCII code points reach the native Paint.measureText() call;
-                    // cached per code point so widths are measured once per renderer lifetime.
-                    Float cachedWidth = mCodePointWidthCache.get(codePoint);
-                    if (cachedWidth != null) {
-                        measuredCodePointWidth = cachedWidth;
-                    } else {
-                        measuredCodePointWidth = mTextPaint.measureText(line, currentCharIndex, charsForCodePoint);
-                        if (mCodePointWidthCache.size() >= MAX_CACHED_CODE_POINT_WIDTHS) {
-                            // Bound memory: reset when full instead of an LRU (keep it simple).
-                            mCodePointWidthCache.clear();
-                        }
-                        mCodePointWidthCache.put(codePoint, measuredCodePointWidth);
-                    }
+                    cache.runs.reset();
+                    computeRuns(cache.runs, lineObject, line, charsUsedInLine, columns, -1, -1, -1);
+                    cache.row = lineObject;
+                    cache.version = lineObject.getRenderVersion();
+                    runs = cache.runs;
                 }
-                final boolean fontWidthMismatch = Math.abs(measuredCodePointWidth / mFontWidth - codePointWcWidth) > 0.01;
-
-                if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch) {
-                    if (column == 0) {
-                        // Skip first column as there is nothing to draw, just record the current style.
-                    } else {
-                        final int columnWidthSinceLastRun = column - lastRunStartColumn;
-                        final int charsSinceLastRun = currentCharIndex - lastRunStartIndex;
-                        int cursorColor = lastRunInsideCursor ? mEmulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_CURSOR] : 0;
-                        boolean invertCursorTextColor = false;
-                        if (lastRunInsideCursor && cursorShape == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK) {
-                            invertCursorTextColor = true;
-                        }
-                        drawTextRun(canvas, line, palette, heightOffset, lastRunStartColumn, columnWidthSinceLastRun,
-                            lastRunStartIndex, charsSinceLastRun, measuredWidthForRun,
-                            cursorColor, cursorShape, lastRunStyle, reverseVideo || invertCursorTextColor || lastRunInsideSelection);
-                    }
-                    measuredWidthForRun = 0.f;
-                    lastRunStyle = style;
-                    lastRunInsideCursor = insideCursor;
-                    lastRunInsideSelection = insideSelection;
-                    lastRunStartColumn = column;
-                    lastRunStartIndex = currentCharIndex;
-                    lastRunFontWidthMismatch = fontWidthMismatch;
-                }
-                measuredWidthForRun += measuredCodePointWidth;
-                column += codePointWcWidth;
-                currentCharIndex += charsForCodePoint;
-                while (currentCharIndex < charsUsedInLine && WcWidth.width(line, currentCharIndex) <= 0) {
-                    // Eat combining chars so that they are treated as part of the last non-combining code point,
-                    // instead of e.g. being considered inside the cursor in the next run.
-                    currentCharIndex += Character.isHighSurrogate(line[currentCharIndex]) ? 2 : 1;
-                }
+            } else {
+                mScratchRuns.reset();
+                computeRuns(mScratchRuns, lineObject, line, charsUsedInLine, columns, cursorX, selx1, selx2);
+                runs = mScratchRuns;
             }
 
-            final int columnWidthSinceLastRun = columns - lastRunStartColumn;
-            final int charsSinceLastRun = currentCharIndex - lastRunStartIndex;
-            int cursorColor = lastRunInsideCursor ? mEmulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_CURSOR] : 0;
-            boolean invertCursorTextColor = false;
-            if (lastRunInsideCursor && cursorShape == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK) {
-                invertCursorTextColor = true;
+            drawRuns(canvas, line, palette, heightOffset, runs, cursorShape, reverseVideo);
+        }
+    }
+
+    private RowCache rowCache(int v) {
+        if (v >= mRowCaches.length) {
+            final int newLength = Math.max(v + 1, 16);
+            final RowCache[] grown = new RowCache[newLength];
+            System.arraycopy(mRowCaches, 0, grown, 0, mRowCaches.length);
+            mRowCaches = grown;
+        }
+        RowCache cache = mRowCaches[v];
+        if (cache == null) {
+            cache = new RowCache();
+            mRowCaches[v] = cache;
+        }
+        return cache;
+    }
+
+    /**
+     * Build the draw runs of one row without drawing them. The run boundaries depend only on the
+     * row content/style plus the cursor/selection passed in, so the result for a row without a
+     * cursor or selection can be cached until the row is mutated again.
+     */
+    private void computeRuns(RunBuffer out, TerminalRow lineObject, char[] line, int charsUsedInLine, int columns,
+                             int cursorX, int selx1, int selx2) {
+        long lastRunStyle = 0;
+        boolean lastRunInsideCursor = false;
+        boolean lastRunInsideSelection = false;
+        int lastRunStartColumn = -1;
+        int lastRunStartIndex = 0;
+        boolean lastRunFontWidthMismatch = false;
+        int currentCharIndex = 0;
+        float measuredWidthForRun = 0.f;
+
+        for (int column = 0; column < columns; ) {
+            final char charAtIndex = line[currentCharIndex];
+            final boolean charIsHighsurrogate = Character.isHighSurrogate(charAtIndex);
+            final int charsForCodePoint = charIsHighsurrogate ? 2 : 1;
+            final int codePoint = charIsHighsurrogate ? Character.toCodePoint(charAtIndex, line[currentCharIndex + 1]) : charAtIndex;
+            final int codePointWcWidth = WcWidth.width(codePoint);
+            final boolean insideCursor = (cursorX == column || (codePointWcWidth == 2 && cursorX == column + 1));
+            final boolean insideSelection = column >= selx1 && column <= selx2;
+            final long style = lineObject.getStyle(column);
+
+            // Check if the measured text width for this code point is not the same as that expected by wcwidth().
+            // This could happen for some fonts which are not truly monospace, or for more exotic characters such as
+            // smileys which android font renders as wide.
+            // If this is detected, we draw this code point scaled to match what wcwidth() expects.
+            final float measuredCodePointWidth;
+            if (codePoint < asciiMeasures.length) {
+                measuredCodePointWidth = asciiMeasures[codePoint];
+            } else {
+                // Only non-ASCII code points reach the native Paint.measureText() call;
+                // cached per code point so widths are measured once per renderer lifetime.
+                Float cachedWidth = mCodePointWidthCache.get(codePoint);
+                if (cachedWidth != null) {
+                    measuredCodePointWidth = cachedWidth;
+                } else {
+                    measuredCodePointWidth = mMeasurePaint.measureText(line, currentCharIndex, charsForCodePoint);
+                    if (mCodePointWidthCache.size() >= MAX_CACHED_CODE_POINT_WIDTHS) {
+                        // Bound memory: reset when full instead of an LRU (keep it simple).
+                        mCodePointWidthCache.clear();
+                    }
+                    mCodePointWidthCache.put(codePoint, measuredCodePointWidth);
+                }
             }
-            drawTextRun(canvas, line, palette, heightOffset, lastRunStartColumn, columnWidthSinceLastRun, lastRunStartIndex, charsSinceLastRun,
-                measuredWidthForRun, cursorColor, cursorShape, lastRunStyle, reverseVideo || invertCursorTextColor || lastRunInsideSelection);
+            final boolean fontWidthMismatch = Math.abs(measuredCodePointWidth / mFontWidth - codePointWcWidth) > 0.01;
+
+            if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch) {
+                if (column == 0) {
+                    // Skip first column as there is nothing to draw, just record the current style.
+                } else {
+                    addRun(out, lastRunStartColumn, column - lastRunStartColumn, lastRunStartIndex, currentCharIndex - lastRunStartIndex,
+                        measuredWidthForRun, lastRunStyle, lastRunInsideCursor, lastRunInsideSelection);
+                }
+                measuredWidthForRun = 0.f;
+                lastRunStyle = style;
+                lastRunInsideCursor = insideCursor;
+                lastRunInsideSelection = insideSelection;
+                lastRunStartColumn = column;
+                lastRunStartIndex = currentCharIndex;
+                lastRunFontWidthMismatch = fontWidthMismatch;
+            }
+            measuredWidthForRun += measuredCodePointWidth;
+            column += codePointWcWidth;
+            currentCharIndex += charsForCodePoint;
+            while (currentCharIndex < charsUsedInLine && WcWidth.width(line, currentCharIndex) <= 0) {
+                // Eat combining chars so that they are treated as part of the last non-combining code point,
+                // instead of e.g. being considered inside the cursor in the next run.
+                currentCharIndex += Character.isHighSurrogate(line[currentCharIndex]) ? 2 : 1;
+            }
+        }
+
+        addRun(out, lastRunStartColumn, columns - lastRunStartColumn, lastRunStartIndex, currentCharIndex - lastRunStartIndex,
+            measuredWidthForRun, lastRunStyle, lastRunInsideCursor, lastRunInsideSelection);
+    }
+
+    private static void addRun(RunBuffer out, int startColumn, int widthColumns, int startCharIndex, int chars,
+                               float measuredWidth, long style, boolean insideCursor, boolean insideSelection) {
+        final RowRun run = out.add();
+        run.startColumn = startColumn;
+        run.widthColumns = widthColumns;
+        run.startCharIndex = startCharIndex;
+        run.chars = chars;
+        run.measuredWidth = measuredWidth;
+        run.style = style;
+        run.insideCursor = insideCursor;
+        run.insideSelection = insideSelection;
+    }
+
+    private void drawRuns(Canvas canvas, char[] line, int[] palette, float heightOffset, RunBuffer runs,
+                          int cursorShape, boolean reverseVideo) {
+        for (int i = 0; i < runs.count; i++) {
+            final RowRun run = runs.runs[i];
+            final int cursorColor = run.insideCursor ? palette[TextStyle.COLOR_INDEX_CURSOR] : 0;
+            final boolean invertCursorTextColor = run.insideCursor && cursorShape == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK;
+            drawTextRun(canvas, line, palette, heightOffset, run.startColumn, run.widthColumns, run.startCharIndex, run.chars,
+                run.measuredWidth, cursorColor, cursorShape, run.style, reverseVideo || invertCursorTextColor || run.insideSelection);
         }
     }
 

@@ -51,6 +51,22 @@ public final class TerminalRow {
     boolean mHasNonOneWidthOrSurrogateChars;
 
     /**
+     * Monotonic counter bumped on any content or style mutation. The renderer caches the draw
+     * runs of a row and only reuses them while this counter is unchanged.
+     */
+    private int mRenderVersion;
+    /**
+     * True while this row is known to contain only spaces. Conservative: stays false once a
+     * non-space char was written even if the row is later overwritten with spaces again.
+     */
+    private boolean mBlank = true;
+    /**
+     * True once any cell got a style other than {@link TextStyle#NORMAL}. A blank row with a
+     * non-default style may still draw a background or text decorations, so it must not be skipped.
+     */
+    private boolean mHasNonDefaultStyle;
+
+    /**
      * Lazily allocated cache mapping each column to the char index in {@link #mText} where the
      * cell covering that column starts (adjacent columns covered by one wide char share the same
      * index). Only allocated once the row contains wide/surrogate chars, since in a pure-ASCII row
@@ -227,12 +243,38 @@ public final class TerminalRow {
         mSpaceUsed = (short) mColumns;
         mHasNonOneWidthOrSurrogateChars = false;
         mColumnBoundaryCacheValid = 0;
+        mRenderVersion++;
+        mBlank = true;
+        mHasNonDefaultStyle = (style != TextStyle.NORMAL);
+    }
+
+    /** Note that a cell's style was changed in place (e.g. SGR effect bits), invalidating cached runs. */
+    void markStyleChanged() {
+        mRenderVersion++;
+        mHasNonDefaultStyle = true;
+    }
+
+    /** @return the current render version, see {@link #mRenderVersion}. */
+    public int getRenderVersion() {
+        return mRenderVersion;
+    }
+
+    /**
+     * @return {@code true} if this row is known to draw nothing (only spaces with the default
+     * style). Conservative: a {@code false} result does not necessarily mean the row is visible.
+     */
+    public boolean isBlankForRender() {
+        return mBlank && !mHasNonDefaultStyle;
     }
 
     // https://github.com/steven676/Android-Terminal-Emulator/commit/9a47042620bec87617f0b4f5d50568535668fe26
     public void setChar(int columnToSet, int codePoint, long style) {
         if (columnToSet  < 0 || columnToSet >= mStyle.length)
             throw new IllegalArgumentException("TerminalRow.setChar(): columnToSet=" + columnToSet + ", codePoint=" + codePoint + ", style=" + style);
+
+        mRenderVersion++;
+        if (codePoint != ' ') mBlank = false;
+        if (style != TextStyle.NORMAL) mHasNonDefaultStyle = true;
 
         mStyle[columnToSet] = style;
 
