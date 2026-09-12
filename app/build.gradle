@@ -88,6 +88,11 @@ android {
 
     buildTypes {
         release {
+            // Sign with the same test key as the debug build so a locally built release APK can be
+            // installed over a debug install (`adb install -r`) without uninstalling (which would
+            // delete the Termux home/packages). Do not use this for distribution (F-Droid and
+            // upstream releases use their own keys).
+            signingConfig signingConfigs.debug
             minifyEnabled true
             shrinkResources false // Reproducible builds
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
