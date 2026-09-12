@@ -221,6 +221,62 @@ public final class TerminalRenderer {
      */
     private void computeRuns(RunBuffer out, TerminalRow lineObject, char[] line, int charsUsedInLine, int columns,
                              int cursorX, int selx1, int selx2) {
+        // A row without wide/surrogate chars has exactly one java char and one cell per column, so
+        // the char index equals the column and no wcwidth lookup or combining-char handling is
+        // needed. This much tighter loop covers the common ASCII/colored-log case.
+        if (!lineObject.hasNonOneWidthOrSurrogateChars()) {
+            computeRunsSingleWidth(out, lineObject, line, columns, cursorX, selx1, selx2);
+        } else {
+            computeRunsGeneral(out, lineObject, line, charsUsedInLine, columns, cursorX, selx1, selx2);
+        }
+    }
+
+    /**
+     * Run computation for rows where every cell is exactly one BMP char of display width 1. When
+     * the row is also known to have a single style (common for a prompt/output line), the style is
+     * read once instead of per column, so a uniform row usually yields a single draw run.
+     */
+    private void computeRunsSingleWidth(RunBuffer out, TerminalRow lineObject, char[] line, int columns,
+                                        int cursorX, int selx1, int selx2) {
+        final boolean uniformStyle = lineObject.hasUniformStyle();
+        final long uniformStyleValue = uniformStyle ? lineObject.getUniformStyle() : 0L;
+
+        long lastRunStyle = 0;
+        boolean lastRunInsideCursor = false;
+        boolean lastRunInsideSelection = false;
+        int lastRunStartColumn = -1;
+        boolean lastRunFontWidthMismatch = false;
+        float measuredWidthForRun = 0.f;
+
+        for (int column = 0; column < columns; column++) {
+            final int codePoint = line[column];
+            final boolean insideCursor = (cursorX == column);
+            final boolean insideSelection = column >= selx1 && column <= selx2;
+            final long style = uniformStyle ? uniformStyleValue : lineObject.getStyle(column);
+            final float measuredCodePointWidth = measureCodePointWidth(codePoint, line, column, 1);
+            final boolean fontWidthMismatch = Math.abs(measuredCodePointWidth / mFontWidth - 1) > 0.01;
+
+            if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch) {
+                if (column != 0) {
+                    addRun(out, lastRunStartColumn, column - lastRunStartColumn, lastRunStartColumn, column - lastRunStartColumn,
+                        measuredWidthForRun, lastRunStyle, lastRunInsideCursor, lastRunInsideSelection);
+                }
+                measuredWidthForRun = 0.f;
+                lastRunStyle = style;
+                lastRunInsideCursor = insideCursor;
+                lastRunInsideSelection = insideSelection;
+                lastRunStartColumn = column;
+                lastRunFontWidthMismatch = fontWidthMismatch;
+            }
+            measuredWidthForRun += measuredCodePointWidth;
+        }
+
+        addRun(out, lastRunStartColumn, columns - lastRunStartColumn, lastRunStartColumn, columns - lastRunStartColumn,
+            measuredWidthForRun, lastRunStyle, lastRunInsideCursor, lastRunInsideSelection);
+    }
+
+    private void computeRunsGeneral(RunBuffer out, TerminalRow lineObject, char[] line, int charsUsedInLine, int columns,
+                                    int cursorX, int selx1, int selx2) {
         long lastRunStyle = 0;
         boolean lastRunInsideCursor = false;
         boolean lastRunInsideSelection = false;
@@ -244,24 +300,7 @@ public final class TerminalRenderer {
             // This could happen for some fonts which are not truly monospace, or for more exotic characters such as
             // smileys which android font renders as wide.
             // If this is detected, we draw this code point scaled to match what wcwidth() expects.
-            final float measuredCodePointWidth;
-            if (codePoint < asciiMeasures.length) {
-                measuredCodePointWidth = asciiMeasures[codePoint];
-            } else {
-                // Only non-ASCII code points reach the native Paint.measureText() call;
-                // cached per code point so widths are measured once per renderer lifetime.
-                Float cachedWidth = mCodePointWidthCache.get(codePoint);
-                if (cachedWidth != null) {
-                    measuredCodePointWidth = cachedWidth;
-                } else {
-                    measuredCodePointWidth = mMeasurePaint.measureText(line, currentCharIndex, charsForCodePoint);
-                    if (mCodePointWidthCache.size() >= MAX_CACHED_CODE_POINT_WIDTHS) {
-                        // Bound memory: reset when full instead of an LRU (keep it simple).
-                        mCodePointWidthCache.clear();
-                    }
-                    mCodePointWidthCache.put(codePoint, measuredCodePointWidth);
-                }
-            }
+            final float measuredCodePointWidth = measureCodePointWidth(codePoint, line, currentCharIndex, charsForCodePoint);
             final boolean fontWidthMismatch = Math.abs(measuredCodePointWidth / mFontWidth - codePointWcWidth) > 0.01;
 
             if (style != lastRunStyle || insideCursor != lastRunInsideCursor || insideSelection != lastRunInsideSelection || fontWidthMismatch || lastRunFontWidthMismatch) {
@@ -291,6 +330,23 @@ public final class TerminalRenderer {
 
         addRun(out, lastRunStartColumn, columns - lastRunStartColumn, lastRunStartIndex, currentCharIndex - lastRunStartIndex,
             measuredWidthForRun, lastRunStyle, lastRunInsideCursor, lastRunInsideSelection);
+    }
+
+    /**
+     * The measured (font) width of a code point, using the ASCII table when possible and a bounded
+     * per-code-point cache for the native {@link Paint#measureText} result otherwise.
+     */
+    private float measureCodePointWidth(int codePoint, char[] line, int charIndex, int charsForCodePoint) {
+        if (codePoint < asciiMeasures.length) return asciiMeasures[codePoint];
+        final Float cachedWidth = mCodePointWidthCache.get(codePoint);
+        if (cachedWidth != null) return cachedWidth;
+        final float measuredCodePointWidth = mMeasurePaint.measureText(line, charIndex, charsForCodePoint);
+        if (mCodePointWidthCache.size() >= MAX_CACHED_CODE_POINT_WIDTHS) {
+            // Bound memory: reset when full instead of an LRU (keep it simple).
+            mCodePointWidthCache.clear();
+        }
+        mCodePointWidthCache.put(codePoint, measuredCodePointWidth);
+        return measuredCodePointWidth;
     }
 
     private static void addRun(RunBuffer out, int startColumn, int widthColumns, int startCharIndex, int chars,

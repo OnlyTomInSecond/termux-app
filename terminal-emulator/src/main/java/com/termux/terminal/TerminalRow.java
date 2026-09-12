@@ -65,6 +65,13 @@ public final class TerminalRow {
      * non-default style may still draw a background or text decorations, so it must not be skipped.
      */
     private boolean mHasNonDefaultStyle;
+    /**
+     * True while every cell in this row is known to share {@link #mUniformStyle} (conservative:
+     * stays false once any cell got a different style). Lets the renderer read the style once
+     * instead of once per column for the common single-style row.
+     */
+    private boolean mStylesUniform = true;
+    private long mUniformStyle;
 
     /**
      * Lazily allocated cache mapping each column to the char index in {@link #mText} where the
@@ -246,12 +253,15 @@ public final class TerminalRow {
         mRenderVersion++;
         mBlank = true;
         mHasNonDefaultStyle = (style != TextStyle.NORMAL);
+        mStylesUniform = true;
+        mUniformStyle = style;
     }
 
     /** Note that a cell's style was changed in place (e.g. SGR effect bits), invalidating cached runs. */
     void markStyleChanged() {
         mRenderVersion++;
         mHasNonDefaultStyle = true;
+        mStylesUniform = false;
     }
 
     /** @return the current render version, see {@link #mRenderVersion}. */
@@ -267,6 +277,21 @@ public final class TerminalRow {
         return mBlank && !mHasNonDefaultStyle;
     }
 
+    /** @return {@code true} if this row may contain chars with width != 1 or surrogate pairs. */
+    public boolean hasNonOneWidthOrSurrogateChars() {
+        return mHasNonOneWidthOrSurrogateChars;
+    }
+
+    /** @return {@code true} if all cells are known to share {@link #getUniformStyle()}. */
+    public boolean hasUniformStyle() {
+        return mStylesUniform;
+    }
+
+    /** @return the common style while {@link #hasUniformStyle()} is {@code true}. */
+    public long getUniformStyle() {
+        return mUniformStyle;
+    }
+
     // https://github.com/steven676/Android-Terminal-Emulator/commit/9a47042620bec87617f0b4f5d50568535668fe26
     public void setChar(int columnToSet, int codePoint, long style) {
         if (columnToSet  < 0 || columnToSet >= mStyle.length)
@@ -275,6 +300,7 @@ public final class TerminalRow {
         mRenderVersion++;
         if (codePoint != ' ') mBlank = false;
         if (style != TextStyle.NORMAL) mHasNonDefaultStyle = true;
+        if (mStylesUniform && style != mUniformStyle) mStylesUniform = false;
 
         mStyle[columnToSet] = style;
 
