@@ -21,6 +21,20 @@ case "${1:-}" in
         "$(date +%H:%M:%S.%3N)" "$((RANDOM % 3))" "$(head -c 120 /dev/urandom | base64 | tr -d '\n')"
     done
     ;;
+  redraw)
+    # Renderer-focused: force a full-screen redraw with minimal parsing. Mostly blank rows plus a
+    # few colored/CJK lines, so it exercises blank-row skipping and per-row run caching rather
+    # than the parser.
+    i=0
+    while :; do
+      printf '\033[2J\033[H'
+      printf '\033[1;32mstatus line %d\033[0m\n' "$i"
+      printf 'plain ascii output line %d the quick brown fox jumps over the lazy dog\n' "$i"
+      printf '\033[31merror\033[0m \033[34minfo\033[0m \033[33mwarn\033[0m line %d\n' "$i"
+      printf '宽字符中文 日本語 mixed line %d\n' "$i"
+      i=$((i + 1))
+    done
+    ;;
   yes)
     # Max throughput single-char flood.
     while :; do echo "y"; done
