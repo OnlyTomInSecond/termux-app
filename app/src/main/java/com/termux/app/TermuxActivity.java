@@ -509,6 +509,10 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     @SuppressLint("ClickableViewAccessibility")
     private void setDrawerSwipeGesture() {
         final DrawerLayout drawer = getDrawer();
+        // Disable the native left-edge drag: on phones it is hard to hit and conflicts with the
+        // system back gesture that reserves the screen edges. The drawer is opened by the
+        // full-area swipe set up below instead.
+        drawer.setDrawerLockMode(DrawerLayout.LOCK_MODE_LOCKED_CLOSED);
         final float minDistance = 64 * getResources().getDisplayMetrics().density;
         mTerminalView.setOnTouchListener(new View.OnTouchListener() {
             private float startX;
