@@ -70,6 +70,12 @@ public final class TerminalView extends View {
 
     /** The top row of text to display. Ranges from -activeTranscriptRows to 0. */
     int mTopRow;
+    /**
+     * Whether new output should scroll the view to the bottom (the cursor). Set to {@code false}
+     * when the user scrolls up into the scrollback history, so output keeps flowing without
+     * pulling the view away; set back to {@code true} once the user is at the bottom again.
+     */
+    private boolean mAutoScroll = true;
     /** Row/col where the cursor was rendered at the last screen update; row is -1 if it was not visible. */
     private int mLastRenderedCursorRow = -1;
     private int mLastRenderedCursorCol;
@@ -474,10 +480,13 @@ public final class TerminalView extends View {
         int rowsInHistory = mEmulator.getScreen().getActiveTranscriptRows();
         final int oldTopRow = mTopRow;
         if (mTopRow < -rowsInHistory) mTopRow = -rowsInHistory;
+        // Being at the bottom means new output should be followed again (e.g. after a session
+        // switch), even if the view was scrolled up in a previously displayed session.
+        if (mTopRow == 0) mAutoScroll = true;
 
-        if (isSelectingText() || mEmulator.isAutoScrollDisabled()) {
+        if (isSelectingText() || mEmulator.isAutoScrollDisabled() || !mAutoScroll) {
 
-            // Do not scroll when selecting text.
+            // Do not scroll when selecting text or while the user is scrolled up in history.
             int rowShift = mEmulator.getScrollCounter();
             if (-mTopRow + rowShift > rowsInHistory) {
                 // .. unless we're hitting the end of history transcript, in which
@@ -485,7 +494,7 @@ public final class TerminalView extends View {
                 if (isSelectingText())
                     stopTextSelectionMode();
 
-                if (mEmulator.isAutoScrollDisabled()) {
+                if (mEmulator.isAutoScrollDisabled() || !mAutoScroll) {
                     mTopRow = -rowsInHistory;
                     skipScrolling = true;
                 }
@@ -662,6 +671,9 @@ public final class TerminalView extends View {
                 handleKeyCode(up ? KeyEvent.KEYCODE_DPAD_UP : KeyEvent.KEYCODE_DPAD_DOWN, 0);
             } else {
                 mTopRow = Math.min(0, Math.max(-(mEmulator.getScreen().getActiveTranscriptRows()), mTopRow + (up ? -1 : 1)));
+                // Remember whether the user scrolled away from the bottom so that incoming output
+                // no longer forces the view back down until they scroll to the bottom again.
+                mAutoScroll = (mTopRow == 0);
                 if (!awakenScrollBars()) requestFullRedraw();
             }
         }
