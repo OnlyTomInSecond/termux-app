@@ -946,6 +946,10 @@ public final class TerminalView extends View {
         if (mEmulator != null)
             mEmulator.setCursorBlinkState(true);
 
+        // Return to the bottom when the user types, so a previously scrolled-up view does not
+        // hide the input echo or the output of the command being run.
+        scrollToBottom();
+
         final boolean controlDown = controlDownFromEvent || mClient.readControlKey();
         final boolean altDown = leftAltDownFromEvent || mClient.readAltKey();
 
@@ -1011,6 +1015,7 @@ public final class TerminalView extends View {
         TerminalEmulator term = mTermSession.getEmulator();
         String code = KeyHandler.getCode(keyCode, keyMod, term.isCursorKeysApplicationMode(), term.isKeypadApplicationMode());
         if (code == null) return false;
+        scrollToBottom();
         mTermSession.write(code);
         return true;
     }
@@ -1163,6 +1168,18 @@ public final class TerminalView extends View {
 
     public void setTopRow(int mTopRow) {
         this.mTopRow = mTopRow;
+    }
+
+    /**
+     * Scroll the view back to the bottom (the cursor) and resume following new output. Used when
+     * the user presses a key after having scrolled up into the scrollback history.
+     */
+    public void scrollToBottom() {
+        mAutoScroll = true;
+        if (mTopRow != 0) {
+            mTopRow = 0;
+            requestFullRedraw();
+        }
     }
 
 
