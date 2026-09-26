@@ -15,8 +15,10 @@ import android.os.IBinder;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
 import android.view.Gravity;
+import android.view.InputDevice;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -495,6 +497,47 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         if (mTermuxTerminalSessionActivityClient != null)
             mTermuxTerminalSessionActivityClient.onCreate();
+
+        setDrawerSwipeGesture();
+    }
+
+    /**
+     * Allow the sessions drawer to be opened by swiping left-to-right anywhere on the terminal
+     * view, instead of only from the narrow left edge, which is hard to hit and conflicts with
+     * the system back gesture.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private void setDrawerSwipeGesture() {
+        final DrawerLayout drawer = getDrawer();
+        final float minDistance = 64 * getResources().getDisplayMetrics().density;
+        mTerminalView.setOnTouchListener(new View.OnTouchListener() {
+            private float startX;
+            private float startY;
+            private boolean triggered;
+
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        startX = event.getX();
+                        startY = event.getY();
+                        triggered = false;
+                        break;
+                    case MotionEvent.ACTION_MOVE:
+                        if (triggered || event.getPointerCount() > 1) break;
+                        // Do not hijack text selection drags, mouse/trackpad input or pinch zoom.
+                        if (mTerminalView.isSelectingText() || event.isFromSource(InputDevice.SOURCE_MOUSE)) break;
+                        float dx = event.getX() - startX;
+                        float dy = Math.abs(event.getY() - startY);
+                        if (dx > minDistance && dx > dy) {
+                            triggered = true;
+                            drawer.openDrawer(Gravity.LEFT);
+                        }
+                        break;
+                }
+                return false;
+            }
+        });
     }
 
     private void setTermuxSessionsListView() {
